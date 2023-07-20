@@ -9,6 +9,7 @@
 #include "util/sokol_imgui.h"
 #include "TextEditor.h"
 #include "pocketpy.h"
+#include "fonts/Roboto_Medium.cpp"
 
 #include <fstream>
 #include <streambuf>
@@ -349,12 +350,43 @@ void init() {
     sg_setup(&desc);
 
     simgui_desc_t simgui_desc = {};
+    simgui_desc.no_default_font = true;
     simgui_setup(&simgui_desc);
 
     ImGui::CreateContext();
     ImGuiIO* io = &ImGui::GetIO();
     io->ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io->ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+    // IMGUI Font texture init
+    if( !ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF(Roboto_Medium_compressed_data, Roboto_Medium_compressed_size, 16.f) )
+    {
+        ImGui::GetIO().Fonts->AddFontDefault();
+    }
+    {
+
+        ImGuiIO& io = ImGui::GetIO();
+
+        // Build texture atlas
+        unsigned char* pixels;
+        int width, height;
+        io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);   // Load as RGBA 32-bit (75% of the memory is wasted, but default font is so small) because it is more likely to be compatible with user's existing shaders. If your ImTextureId represent a higher-level concept than just a GL texture id, consider calling GetTexDataAsAlpha8() instead to save on GPU memory.
+
+        sg_image_desc img_desc{};
+        img_desc.width = width;
+        img_desc.height = height;
+        img_desc.label = "font-texture";
+        img_desc.wrap_u = SG_WRAP_CLAMP_TO_EDGE;
+        img_desc.wrap_v = SG_WRAP_CLAMP_TO_EDGE;
+        img_desc.min_filter = SG_FILTER_LINEAR;
+        img_desc.mag_filter = SG_FILTER_LINEAR;
+        img_desc.data.subimage[0][0].ptr = pixels;
+        img_desc.data.subimage[0][0].size = (width * height) * sizeof(uint32_t);
+
+        sg_image img = sg_make_image(&img_desc);
+
+        io.Fonts->TexID = (ImTextureID)(uintptr_t)img.id;
+    }
 
     pass_action.colors[0].load_action = SG_LOADACTION_CLEAR;
 
