@@ -551,12 +551,13 @@ int main(int argc, const char* argv[]) {
     sapp_desc desc = {};
     desc.init_cb = init;
     desc.frame_cb = frame;
-    desc.cleanup_cb = cleanup,
-    desc.event_cb = input,
-    desc.width = 800,
-    desc.height = 600,
-    desc.window_title = "Mini Python IDE",
-    desc.icon.sokol_default = true,
+    desc.cleanup_cb = cleanup;
+    desc.event_cb = input;
+    desc.width = 800;
+    desc.height = 600;
+    desc.high_dpi = true;
+    desc.window_title = "Mini Python IDE";
+    desc.icon.sokol_default = true;
     desc.logger.func = slog_func;
     sapp_run(desc);
 
