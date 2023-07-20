@@ -183,10 +183,7 @@ void frame() {
 
                 if (ImGui::BeginMenu("Imgui Demo"))
                 {
-                    if (ImGui::MenuItem("Show Demo"))
-                    {
-                        show_test_window = !show_test_window;
-                    }
+                    ImGui::MenuItem("Show Demo", NULL, &show_test_window);
                     ImGui::EndMenu();
                 }
                 ImGui::EndMenuBar();
