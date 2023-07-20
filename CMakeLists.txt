@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD 17)
 add_executable(MiniPythonIDE
         main.cpp
         3rd_party/imgui/imgui.cpp
-        3rd_party/imgui/imgui_demo.cpp
         3rd_party/imgui/imgui_draw.cpp
         3rd_party/imgui/imgui_tables.cpp
         3rd_party/imgui/imgui_widgets.cpp
