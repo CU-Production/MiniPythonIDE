@@ -445,7 +445,7 @@ void frame() {
 
         {
             auto cpos = editor.GetCursorPosition();
-            ImGui::Begin("Text Editor Demo", nullptr, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_MenuBar);
+            ImGui::Begin("Text Editor", nullptr, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_MenuBar);
             ImGui::SetWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
             ImGui::SetWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
             if (ImGui::BeginMenuBar())
