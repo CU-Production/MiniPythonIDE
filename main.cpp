@@ -9,7 +9,7 @@
 #include "util/sokol_imgui.h"
 #include "TextEditor.h"
 #include "pocketpy.h"
-#include "fonts/Roboto_Medium.cpp"
+#include "fonts/RobotoMono-VariableFont_wght.cpp"
 
 #include <fstream>
 #include <streambuf>
@@ -359,7 +359,7 @@ void init() {
     io->ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
     // IMGUI Font texture init
-    if( !ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF(Roboto_Medium_compressed_data, Roboto_Medium_compressed_size, 16.f) )
+    if( !ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF(RobotoMono_VariableFont_wght_compressed_data, RobotoMono_VariableFont_wght_compressed_size, 18.f) )
     {
         ImGui::GetIO().Fonts->AddFontDefault();
     }
