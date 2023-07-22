@@ -9,7 +9,7 @@
 #include "util/sokol_imgui.h"
 #include "TextEditor.h"
 #include "pocketpy.h"
-#include "fonts/RobotoMono-Medium.cpp"
+#include "fonts/Cousine-Regular.cpp"
 
 #include <fstream>
 #include <streambuf>
@@ -359,7 +359,7 @@ void init() {
     io->ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
     // IMGUI Font texture init
-    if( !ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF(RobotoMono_Medium_compressed_data, RobotoMono_Medium_compressed_size, 18.f) )
+    if( !ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF(Cousine_Regular_compressed_data, Cousine_Regular_compressed_size, 18.f) )
     {
         ImGui::GetIO().Fonts->AddFontDefault();
     }
@@ -520,6 +520,7 @@ void frame() {
                         editor.IsOverwrite() ? "Ovr" : "Ins",
                         editor.CanUndo() ? "*" : " ",
                         editor.GetLanguageDefinition().mName.c_str(), fileToEdit);
+//            ImGui::Text("width: %d, height: %d, dpi_scale: %.1f\n", sapp_width(), sapp_height(), sapp_dpi_scale());
 
             editor.Render("TextEditor");
             ImGui::End();
