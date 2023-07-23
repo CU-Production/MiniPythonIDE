@@ -12,6 +12,10 @@ configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config_app.h.cmake ${CMAKE_BINARY
 set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "")
 add_subdirectory(3rd_party/freetype)
 
+set(SDL_STATIC ON)
+set(SDL_SHARED OFF)
+add_subdirectory(3rd_party/SDL EXCLUDE_FROM_ALL)
+
 add_executable(MiniPythonIDE
         src/main.cpp
         src/editor.cpp
@@ -21,19 +25,22 @@ add_executable(MiniPythonIDE
         3rd_party/imgui/imgui_draw.cpp
         3rd_party/imgui/imgui_tables.cpp
         3rd_party/imgui/imgui_widgets.cpp
-        3rd_party/imgui/misc/freetype/imgui_freetype.cpp)
+        3rd_party/imgui/misc/freetype/imgui_freetype.cpp
+        3rd_party/imgui/imgui_impl_opengl3.cpp
+        3rd_party/imgui/imgui_impl_sdl3.cpp)
 target_include_directories(MiniPythonIDE PRIVATE
         ${CMAKE_BINARY_DIR}
         3rd_party/imgui
         3rd_party/ImGuiColorTextEdit
         3rd_party/pocketpy
-        3rd_party/sokol
         3rd_party/zep/include
         3rd_party/tinyfiledialogs)
 target_link_libraries(MiniPythonIDE PRIVATE
-        freetype)
+        freetype
+        SDL3::SDL3)
 target_compile_definitions(MiniPythonIDE PRIVATE
         ZEP_FEATURE_CPP_FILE_SYSTEM
+        ZEP_USE_SDL
         ZEP_SINGLE_HEADER=1)
 add_custom_command(
         TARGET MiniPythonIDE POST_BUILD
