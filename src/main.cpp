@@ -547,7 +547,7 @@ void frame() {
 
         // Just show it
         const int main_menu_height = 22;
-        static Zep::NVec2i size = Zep::NVec2i(800, 600 - main_menu_height);
+        static Zep::NVec2i size = Zep::NVec2i(1280, 720 - main_menu_height);
         static Zep::NVec2i pos = Zep::NVec2i(0, main_menu_height);
         zep_show(size, pos);
     }
@@ -580,8 +580,8 @@ int main(int argc, const char* argv[]) {
     desc.frame_cb = frame;
     desc.cleanup_cb = cleanup;
     desc.event_cb = input;
-    desc.width = 800;
-    desc.height = 600;
+    desc.width = 1280;
+    desc.height = 720;
     desc.high_dpi = true;
     desc.window_title = "Mini Python IDE";
     desc.icon.sokol_default = true;
