@@ -169,31 +169,31 @@ public:
             // without modifying the ImGui base code, we have special handling here for CTRL.
             // For the Win32 case, we use VK_A (ASCII) is handled below
 #if defined(_SDL_H) || defined(ZEP_USE_SDL)
-            if (ImGui::IsKeyPressed(ImGuiKey(KEY_1)))
+            if (ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_1)))
             {
                 SetGlobalMode(ZepMode_Standard::StaticName());
                 handled = true;
             }
-            else if (ImGui::IsKeyPressed(ImGuiKey(KEY_2)))
+            else if (ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_2)))
             {
                 SetGlobalMode(ZepMode_Vim::StaticName());
                 handled = true;
             }
             else
             {
-                for (int ch = KEY_1; ch <= KEY_0; ch++)
+                for (int ch = ImGuiKey_0; ch <= ImGuiKey_0; ch++)
                 {
                     if (ImGui::IsKeyPressed(ImGuiKey(ch)))
                     {
-                        pBuffer->GetMode()->AddKeyPress(ch == KEY_0 ? '0' : ch - KEY_1 + '1', mod);
+                        pBuffer->GetMode()->AddKeyPress(ch == ImGuiKey_0 ? '0' : ch - KEY_1 + '1', mod);
                         handled = true;
                     }
                 }
-                for (int ch = KEY_A; ch <= KEY_Z; ch++)
+                for (int ch = ImGuiKey_A; ch <= ImGuiKey_Z; ch++)
                 {
                     if (ImGui::IsKeyPressed(ImGuiKey(ch)))
                     {
-                        pBuffer->GetMode()->AddKeyPress((ch - KEY_A) + 'a', mod);
+                        pBuffer->GetMode()->AddKeyPress((ch - ImGuiKey_A) + 'a', mod);
                         handled = true;
                     }
                 }
