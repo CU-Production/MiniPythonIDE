@@ -55,7 +55,7 @@ static std::unordered_set<std::string> hlsl_identifiers = {
 
 // From here: https://www.khronos.org/registry/OpenGL/specs/gl/GLSLangSpec.4.00.pdf
 static std::unordered_set<std::string> glsl_keywords{
-    "#version", "attribute", "const", "uniform", "varying", "layout", "centroid", "flat", "smooth", "noperspective", "patch", "sample", "break", "continue", "do", "for", "while", "switch", "case", "default",
+    "#version", "#extension", "#include", "attribute", "const", "uniform", "varying", "layout", "centroid", "flat", "smooth", "noperspective", "patch", "sample", "break", "continue", "do", "for", "while", "switch", "case", "default",
     "if", "else", "subroutine", "in", "out", "inout", "float", "double", "int", "void", "bool", "true", "false", "invariant", "discard", "return", "mat2", "mat3", "mat4", "dmat2", "dmat3", "dmat4",
     "mat2x2", "mat2x3", "mat2x4", "dmat2x2", "dmat2x3", "dmat2x4", "mat3x2", "mat3x3", "mat3x4", "dmat3x2", "dmat3x3", "dmat3x4", "mat4x2", "mat4x3", "mat4x4", "dmat4x2", "dmat4x3", "dmat4x4",
     "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4", "bvec2", "bvec3", "bvec4", "dvec2", "dvec3", "dvec4", "uint", "uvec2", "uvec3", "uvec4", "lowp", "mediump", "highp", "precision",
@@ -67,55 +67,9 @@ static std::unordered_set<std::string> glsl_keywords{
 };
 
 static std::unordered_set<std::string> glsl_identifiers = {
-    "abort",
-    "abs",
-    "acos",
-    "asin",
-    "atan",
-    "atexit",
-    "atof",
-    "atoi",
-    "atol",
-    "ceil",
-    "clock",
-    "cosh",
-    "ctime",
-    "div",
-    "exit",
-    "fabs",
-    "floor",
-    "fmod",
-    "getchar",
-    "getenv",
-    "isalnum",
-    "isalpha",
-    "isdigit",
-    "isgraph",
-    "ispunct",
-    "isspace",
-    "isupper",
-    "kbhit",
-    "log10",
-    "log2",
-    "log",
-    "memcmp",
-    "modf",
-    "pow",
-    "putchar",
-    "putenv",
-    "puts",
-    "rand",
-    "remove",
-    "rename",
-    "sinh",
-    "sqrt",
-    "srand",
-    "strcat",
-    "strcmp",
-    "strerror",
-    "time",
-    "tolower",
-    "toupper",
+    "abort", "abs", "acos", "asin", "atan", "atexit", "atof", "atoi", "atol", "ceil", "clock", "cosh", "ctime", "div", "exit", "fabs", "floor", "fmod", "getchar", "getenv", "isalnum",
+    "isalpha", "isdigit", "isgraph", "ispunct", "isspace", "isupper", "kbhit", "log10", "log2", "log", "memcmp", "modf", "pow", "putchar", "putenv", "puts", "rand", "remove", "rename",
+    "sinh", "sqrt", "srand", "strcat", "strcmp", "strerror", "time", "tolower", "toupper"
 };
 
 static std::unordered_set<std::string> c_keywords = {
@@ -182,24 +136,19 @@ static std::unordered_set<std::string> janet_identifiers = {
 };
 
 static std::unordered_set<std::string> scenegraph_keywords = {
-    "pass", "geometry", "vs", "gs", "fs", "model", "scale", "path", "surface", "size", "format", "targets", "clear"
+    "pass", "post_2d", "geometry", "script", "camera", "position", "look_at", "field_of_view", "near_far", "build_as", "vs", "gs", "fs", "model", "scale", "path", "surface", "size", "format", "targets", "clear", "ray_group_triangles", "ray_group_general", "ray_group_procedural", "ray_gen", "closest_hit", "miss", "any_hit", "callable", "intersection"
+};
+
+static std::unordered_set<std::string> py_keywords = {
+    "for", "in", "fn", "def", "range", "import", "from", "int", "float", "vec2", "vec4", "vec3"
+};
+
+static std::unordered_set<std::string> py_identifiers = {
+    "math", "sin", "cos", "circle", "bezier", "line", "text"
 };
 
 static std::unordered_set<std::string> scenegraph_identifiers = {
     ":", "=", "default", "default_color", "default_depth", "screen_rect"
-};
-
-static std::unordered_set<std::string> python_keywords = {
-    "and", "as", "assert", "break", "class", "continue", "def", "del", "", "elif", "else", "except", "False", "finally", "for", "from",
-    "global", "if", "import",  "in", "is", "lambda", "None", "nonlocal", "not", "or", "pass", "raise", "return", "True", "try", "while", "with", "yield"
-};
-
-static std::unordered_set<std::string> python_identifiers = {
-    "abs", "all", "any", "ascii", "bin", "bool", "bytearra", "bytes", "callable", "chr", "classmethod", "compile", "complex",
-    "delattr", "dict", "dir", "divmod", "enumerate", "eval", "exec", "filter", "float", "format", "frozenset", "getattr", "globals",
-    "hasattr", "hash", "help", "hex", "id", "input", "int", "isinstance()", "issubclass", "iter", "len", "list", "locals",
-    "map", "max", "memoryview", "min", "next", "object", "oct", "open", "ord", "pow", "print", "property", "range", "repr", "reversed", "round",
-    "set", "setattr", "slice", "sorted", "staticmethod", "str", "sum", "super", "tuple", "type", "vars", "zip"
 };
 
 static std::unordered_set<std::string> tree_keywords = {};
@@ -212,17 +161,17 @@ void RegisterSyntaxProviders(ZepEditor& editor)
     editor.RegisterSyntaxFactory({ ".scenegraph" }, SyntaxProvider{ "scenegraph", tSyntaxFactory([](ZepBuffer* pBuffer) {
                                                                        return std::make_shared<ZepSyntax>(*pBuffer, scenegraph_keywords, scenegraph_identifiers);
                                                                    }) });
-    editor.RegisterSyntaxFactory({ ".vert", ".frag", ".geom" }, SyntaxProvider{ "gl_shader", tSyntaxFactory([](ZepBuffer* pBuffer) {
-                                                                                   return std::make_shared<ZepSyntax>(*pBuffer, glsl_keywords, glsl_identifiers);
-                                                                               }) });
+    editor.RegisterSyntaxFactory({ ".vert", ".frag", ".geom", ".rchit", ".rgen", ".rmiss", ".glsl" }, SyntaxProvider{ "gl_shader", tSyntaxFactory([](ZepBuffer* pBuffer) {
+                                                                                                                         return std::make_shared<ZepSyntax>(*pBuffer, glsl_keywords, glsl_identifiers);
+                                                                                                                     }) });
 
     editor.RegisterSyntaxFactory({ ".hlsl", ".hlsli", ".vs", ".ps", ".gs" }, SyntaxProvider{ "hlsl_shader", tSyntaxFactory([](ZepBuffer* pBuffer) {
                                                                                                 return std::make_shared<ZepSyntax>(*pBuffer, hlsl_keywords, hlsl_identifiers);
                                                                                             }) });
 
-    editor.RegisterSyntaxFactory({ ".cpp", ".cxx", ".h", ".c" }, SyntaxProvider{ "cpp", tSyntaxFactory([](ZepBuffer* pBuffer) {
-                                                                                    return std::make_shared<ZepSyntax>(*pBuffer, cpp_keywords, cpp_identifiers);
-                                                                                }) });
+    editor.RegisterSyntaxFactory({ ".cpp", ".cxx", ".hpp", ".h", ".c" }, SyntaxProvider{ "cpp", tSyntaxFactory([](ZepBuffer* pBuffer) {
+                                                                                            return std::make_shared<ZepSyntax>(*pBuffer, cpp_keywords, cpp_identifiers);
+                                                                                        }) });
 
     editor.RegisterSyntaxFactory({ ".lisp", ".lsp" }, SyntaxProvider{ "lisp", tSyntaxFactory([](ZepBuffer* pBuffer) {
                                                                          return std::make_shared<ZepSyntax>(*pBuffer, lisp_keywords, lisp_identifiers, ZepSyntaxFlags::LispLike);
@@ -236,12 +185,9 @@ void RegisterSyntaxProviders(ZepEditor& editor)
                                                                                                                   return std::make_shared<ZepSyntax>(*pBuffer, lisp_keywords, lisp_identifiers, ZepSyntaxFlags::LispLike);
                                                                                                               }) });
 
-    editor.RegisterSyntaxFactory({ ".cmake", "CMakeLists.txt" }, SyntaxProvider{ "cmake", tSyntaxFactory([](ZepBuffer* pBuffer) {
-                                                                                    return std::make_shared<ZepSyntax>(*pBuffer, cmake_keywords, cmake_identifiers, ZepSyntaxFlags::CaseInsensitive);
-                                                                                }) });
-    editor.RegisterSyntaxFactory({ ".py", ".python" }, SyntaxProvider{ "python", tSyntaxFactory([](ZepBuffer* pBuffer) {
-                                                                          return std::make_shared<ZepSyntax>(*pBuffer, python_keywords, python_identifiers, ZepSyntaxFlags::CaseInsensitive);
-                                                                      }) });
+    editor.RegisterSyntaxFactory({ ".cmake", "CMakeLists.txt", "CMakeCache.txt" }, SyntaxProvider{ "cmake", tSyntaxFactory([](ZepBuffer* pBuffer) {
+                                                                                                      return std::make_shared<ZepSyntax>(*pBuffer, cmake_keywords, cmake_identifiers, ZepSyntaxFlags::CaseInsensitive);
+                                                                                                  }) });
 
     editor.RegisterSyntaxFactory(
         { ".toml" },
@@ -259,6 +205,12 @@ void RegisterSyntaxProviders(ZepEditor& editor)
         { ".md", ".markdown" },
         SyntaxProvider{ "markdown", tSyntaxFactory([](ZepBuffer* pBuffer) {
                            return std::make_shared<ZepSyntax_Markdown>(*pBuffer, markdown_keywords, markdown_identifiers, ZepSyntaxFlags::CaseInsensitive);
+                       }) });
+    
+    editor.RegisterSyntaxFactory(
+        { ".py", ".python" },
+        SyntaxProvider{ "python", tSyntaxFactory([](ZepBuffer* pBuffer) {
+                           return std::make_shared<ZepSyntax>(*pBuffer, py_keywords, py_identifiers, ZepSyntaxFlags::CaseInsensitive);
                        }) });
 }
 

@@ -52,7 +52,7 @@ public:
     {
         // This is the code from ImGui internals; we can't call GetTextSize, because it doesn't return the correct 'advance' formula, which we
         // need as we draw one character at a time...
-        const float font_size = m_pFont->LegacySize;
+        const float font_size = m_pFont->FontSize;
         ImVec2 text_size = m_pFont->CalcTextSizeA(float(GetPixelHeight()), FLT_MAX, FLT_MAX, (const char*)pBegin, (const char*)pEnd, NULL);
         if (text_size.x == 0.0)
         {
@@ -146,7 +146,7 @@ public:
     {
         if (m_fonts[(int)type] == nullptr)
         {
-            m_fonts[(int)type] = std::make_shared<ZepFont_ImGui>(*this, ImGui::GetIO().Fonts[0].Fonts[0], int(16.0f * GetPixelScale().y));
+            m_fonts[(int)type] = std::make_shared<ZepFont_ImGui>(*this, ImGui::GetIO().Fonts[0].Fonts[0], int(DefaultTextSize * GetPixelScale().y));
         }
         return *m_fonts[(int)type];
     }
