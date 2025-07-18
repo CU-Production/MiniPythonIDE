@@ -181,7 +181,7 @@ public:
             }
             else
             {
-                for (int ch = ImGuiKey_0; ch <= ImGuiKey_0; ch++)
+                for (int ch = ImGuiKey_0; ch <= ImGuiKey_9; ch++)
                 {
                     if (ImGui::IsKeyPressed(ImGuiKey(ch)))
                     {
@@ -198,7 +198,7 @@ public:
                     }
                 }
 
-                if (ImGui::IsKeyPressed(ImGuiKey(KEY_SPACE)))
+                if (ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_Space)))
                 {
                     pBuffer->GetMode()->AddKeyPress(' ', mod);
                     handled = true;
