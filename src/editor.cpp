@@ -93,7 +93,7 @@ void zep_init(const Zep::NVec2f& pixelScale)
     // see that Zep picks a different font size for the heading.
     auto& display = spZep->GetEditor().GetDisplay();
     auto pImFont = ImGui::GetIO().Fonts[0].Fonts[0];
-    auto pixelHeight = pImFont->FontSize;
+    auto pixelHeight = pImFont->LegacySize;
     display.SetFont(ZepTextType::UI, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight)));
     display.SetFont(ZepTextType::Text, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight)));
     display.SetFont(ZepTextType::Heading1, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight * 1.5)));

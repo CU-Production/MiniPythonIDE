@@ -9,12 +9,7 @@ endif ()
 
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config_app.h.cmake ${CMAKE_BINARY_DIR}/config_app.h)
 
-set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "")
-add_subdirectory(3rd_party/freetype)
-
-set(SDL_STATIC ON)
-set(SDL_SHARED OFF)
-add_subdirectory(3rd_party/SDL EXCLUDE_FROM_ALL)
+add_subdirectory(3rd_party)
 
 add_executable(MiniPythonIDE
         src/main.cpp
