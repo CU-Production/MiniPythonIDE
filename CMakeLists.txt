@@ -21,7 +21,7 @@ add_executable(MiniPythonIDE
         3rd_party/imgui/imgui_tables.cpp
         3rd_party/imgui/imgui_widgets.cpp
         3rd_party/imgui/misc/freetype/imgui_freetype.cpp
-        3rd_party/imgui/imgui_impl_opengl3.cpp
+        3rd_party/imgui/imgui_impl_sdlgpu3.cpp
         3rd_party/imgui/imgui_impl_sdl3.cpp)
 target_include_directories(MiniPythonIDE PRIVATE
         ${CMAKE_BINARY_DIR}
