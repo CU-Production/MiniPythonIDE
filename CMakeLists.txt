@@ -8,9 +8,13 @@ if (POLICY CMP0077)
     cmake_policy(SET CMP0077 NEW)
 endif ()
 
+# Option to enable/disable debugger support (default: ON)
+option(ENABLE_DEBUGGER "Enable Python debugger support" ON)
+
 add_subdirectory(3rd_party)
 
-add_executable(MiniPythonIDE
+# Source files
+set(MINIPYTHONIDE_SOURCES
         src/main.cpp
         src/editor.cpp
         src/editor.h
@@ -24,6 +28,15 @@ add_executable(MiniPythonIDE
         3rd_party/imgui/imgui_impl_sdl3.cpp
         3rd_party/ImGuiColorTextEdit/TextEditor.cpp
         3rd_party/pocketpy/pocketpy.c)
+
+# Add debugger sources if enabled
+if(ENABLE_DEBUGGER)
+    list(APPEND MINIPYTHONIDE_SOURCES
+        src/debugger.cpp
+        src/debugger.h)
+endif()
+
+add_executable(MiniPythonIDE ${MINIPYTHONIDE_SOURCES})
 target_include_directories(MiniPythonIDE PRIVATE
         ${CMAKE_BINARY_DIR}
         3rd_party/imgui
@@ -33,6 +46,14 @@ target_include_directories(MiniPythonIDE PRIVATE
 
 # Disable PocketPy threads to avoid C11 atomic issues on MSVC
 target_compile_definitions(MiniPythonIDE PRIVATE PK_ENABLE_THREADS=0)
+
+# Add ENABLE_DEBUGGER definition if debugger is enabled
+if(ENABLE_DEBUGGER)
+    target_compile_definitions(MiniPythonIDE PRIVATE ENABLE_DEBUGGER=1)
+    message(STATUS "Python debugger support: ENABLED")
+else()
+    message(STATUS "Python debugger support: DISABLED")
+endif()
 target_link_libraries(MiniPythonIDE PRIVATE
         freetype
         SDL3::SDL3)

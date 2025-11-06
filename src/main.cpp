@@ -11,6 +11,9 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 #include "editor.h"
+#ifdef ENABLE_DEBUGGER
+#include "debugger.h"
+#endif
 #include "../fonts/Cousine-Regular.cpp"
 
 #include "imgui.h"
@@ -187,6 +190,10 @@ struct ExampleAppConsole
 
 static ExampleAppConsole console;
 
+#ifdef ENABLE_DEBUGGER
+static Debugger debugger;
+#endif
+
 // Main code
 int main(int, char**)
 {
@@ -263,6 +270,10 @@ int main(int, char**)
 
     // Our state
     bool show_console_window = false;
+#ifdef ENABLE_DEBUGGER
+    bool show_variables_window = false;
+    bool show_callstack_window = false;
+#endif
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     // Init editor
@@ -422,7 +433,12 @@ int main(int, char**)
 
             if (ImGui::BeginMenu("Run"))
             {
-                if (ImGui::MenuItem("Run Script", "F5"))
+#ifdef ENABLE_DEBUGGER
+                bool canRun = !debugger.IsDebugging();
+#else
+                bool canRun = true;
+#endif
+                if (ImGui::MenuItem("Run Script", "F5", false, canRun))
                 {
                     std::string code = editor.GetText();
                     auto currentFile = editor.GetCurrentFile();
@@ -442,6 +458,52 @@ int main(int, char**)
                 ImGui::MenuItem("Show Console", nullptr, &show_console_window);
                 ImGui::EndMenu();
             }
+
+#ifdef ENABLE_DEBUGGER
+            if (ImGui::BeginMenu("Debug"))
+            {
+                if (ImGui::MenuItem("Start Debugging", "F9", false, !debugger.IsDebugging()))
+                {
+                    debugger.Start();
+                    show_variables_window = true;
+                    show_callstack_window = true;
+                    show_console_window = true;
+                }
+                
+                if (ImGui::MenuItem("Stop Debugging", nullptr, false, debugger.IsDebugging()))
+                {
+                    debugger.Stop();
+                }
+                
+                ImGui::Separator();
+                
+                if (ImGui::MenuItem("Continue", "F5", false, debugger.IsPaused()))
+                {
+                    debugger.Continue();
+                }
+                
+                if (ImGui::MenuItem("Step Over", "F10", false, debugger.IsPaused()))
+                {
+                    debugger.StepOver();
+                }
+                
+                if (ImGui::MenuItem("Step Into", "F11", false, debugger.IsPaused()))
+                {
+                    debugger.StepInto();
+                }
+                
+                if (ImGui::MenuItem("Step Out", "Shift+F11", false, debugger.IsPaused()))
+                {
+                    debugger.StepOut();
+                }
+                
+                ImGui::Separator();
+                ImGui::MenuItem("Show Variables", nullptr, &show_variables_window, debugger.IsDebugging());
+                ImGui::MenuItem("Show Call Stack", nullptr, &show_callstack_window, debugger.IsDebugging());
+                
+                ImGui::EndMenu();
+            }
+#endif
 
             ImGui::EndMainMenuBar();
         }
@@ -547,6 +609,186 @@ int main(int, char**)
         {
             console.Draw("Python Console", &show_console_window);
         }
+
+#ifdef ENABLE_DEBUGGER
+        // Debugger Toolbar
+        if (ImGui::Begin("Debugger", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            // Debug control buttons
+            if (!debugger.IsDebugging())
+            {
+                if (ImGui::Button("Start Debug (F9)"))
+                {
+                    debugger.Start();
+                    show_variables_window = true;
+                    show_callstack_window = true;
+                    
+                    std::string code = editor.GetText();
+                    auto currentFile = editor.GetCurrentFile();
+                    std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+                    
+                    if (!py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
+                        char* exc_msg = py_formatexc();
+                        console.AddLog("[error] %s", exc_msg);
+                        py_free(exc_msg);
+                        py_clearexc(NULL);
+                        debugger.Stop();
+                    } else {
+                        debugger.Stop();
+                    }
+                    show_console_window = true;
+                }
+            }
+            else
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+                if (ImGui::Button("Stop"))
+                {
+                    debugger.Stop();
+                }
+                ImGui::PopStyleColor();
+                
+                ImGui::SameLine();
+                
+                bool is_paused = debugger.IsPaused();
+                if (!is_paused)
+                {
+                    if (ImGui::Button("Pause"))
+                    {
+                        debugger.Pause();
+                    }
+                }
+                else
+                {
+                    if (ImGui::Button("Continue (F5)"))
+                    {
+                        debugger.Continue();
+                    }
+                    
+                    ImGui::SameLine();
+                    if (ImGui::Button("Step Over (F10)"))
+                    {
+                        debugger.StepOver();
+                    }
+                    
+                    ImGui::SameLine();
+                    if (ImGui::Button("Step Into (F11)"))
+                    {
+                        debugger.StepInto();
+                    }
+                    
+                    ImGui::SameLine();
+                    if (ImGui::Button("Step Out (Shift+F11)"))
+                    {
+                        debugger.StepOut();
+                    }
+                }
+            }
+            
+            // Display current execution location
+            if (debugger.IsPaused())
+            {
+                ImGui::Separator();
+                ImGui::Text("Paused at: %s:%d", debugger.GetCurrentFile().c_str(), debugger.GetCurrentLine());
+            }
+        }
+        ImGui::End();
+
+        // Variables Window
+        if (show_variables_window && debugger.IsDebugging())
+        {
+            if (ImGui::Begin("Variables", &show_variables_window))
+            {
+                if (ImGui::CollapsingHeader("Local Variables", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    const auto& locals = debugger.GetLocalVariables();
+                    if (locals.empty())
+                    {
+                        ImGui::TextDisabled("(no local variables)");
+                    }
+                    else
+                    {
+                        ImGui::BeginTable("LocalVars", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+                        ImGui::TableSetupColumn("Name");
+                        ImGui::TableSetupColumn("Value");
+                        ImGui::TableSetupColumn("Type");
+                        ImGui::TableHeadersRow();
+                        
+                        for (const auto& var : locals)
+                        {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", var.name.c_str());
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", var.value.c_str());
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", var.type.c_str());
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+                
+                if (ImGui::CollapsingHeader("Global Variables"))
+                {
+                    const auto& globals = debugger.GetGlobalVariables();
+                    if (globals.empty())
+                    {
+                        ImGui::TextDisabled("(no global variables)");
+                    }
+                    else
+                    {
+                        ImGui::BeginTable("GlobalVars", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+                        ImGui::TableSetupColumn("Name");
+                        ImGui::TableSetupColumn("Value");
+                        ImGui::TableSetupColumn("Type");
+                        ImGui::TableHeadersRow();
+                        
+                        for (const auto& var : globals)
+                        {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", var.name.c_str());
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", var.value.c_str());
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", var.type.c_str());
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+            }
+            ImGui::End();
+        }
+
+        // Call Stack Window
+        if (show_callstack_window && debugger.IsDebugging())
+        {
+            if (ImGui::Begin("Call Stack", &show_callstack_window))
+            {
+                const auto& frames = debugger.GetStackFrames();
+                if (frames.empty())
+                {
+                    ImGui::TextDisabled("(no stack frames)");
+                }
+                else
+                {
+                    for (size_t i = 0; i < frames.size(); i++)
+                    {
+                        const auto& frame = frames[i];
+                        if (ImGui::Selectable(frame.function_name.c_str()))
+                        {
+                            // Could jump to frame location here
+                        }
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("%s:%d", frame.filename.c_str(), frame.lineno);
+                        }
+                    }
+                }
+            }
+            ImGui::End();
+        }
+#endif // ENABLE_DEBUGGER
 
         // Rendering
         ImGui::Render();
