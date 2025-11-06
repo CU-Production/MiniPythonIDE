@@ -1,13 +1,14 @@
 // Dear ImGui: standalone example application for SDL3 + SDL_GPU
 
 #define NOMINMAX
+#define PK_IS_PUBLIC_INCLUDE
 #include "pocketpy.h"
 #include "tinyfiledialogs.h"
 
 #include <fstream>
 #include <streambuf>
+#include <iostream>
 #include <filesystem>
-#include "config_app.h"
 namespace fs = std::filesystem;
 #include "editor.h"
 #include "../fonts/Cousine-Regular.cpp"
@@ -274,27 +275,33 @@ int main(int, char**)
     }
 
     // Init pocket.py
-    pkpy::VM* vm = new pkpy::VM();
+    py_initialize();
+    
+    // Setup stdout/stderr callbacks
+    py_callbacks()->print = [](const char* s) {
+        console.AddLog("%s", s);
+        std::cout << s;
+    };
+    
+    // Create test module
     {
-        pkpy::PyObject* mod = vm->new_module("test");
-        mod->attr().set("pi", pkpy::py_var(vm, 3.14));
-
-        vm->bind_func<2>(mod, "add", [](pkpy::VM* vm, pkpy::ArgsView args){
-            pkpy::i64 a = pkpy::py_cast<pkpy::i64>(vm, args[0]);
-            pkpy::i64 b = pkpy::py_cast<pkpy::i64>(vm, args[1]);
-            return pkpy::py_var(vm, a + b);
+        py_GlobalRef mod = py_newmodule("test");
+        
+        // Set pi attribute
+        py_newfloat(py_r0(), 3.14);
+        py_setdict(mod, py_name("pi"), py_r0());
+        
+        // Bind add function
+        py_bindfunc(mod, "add", [](int argc, py_StackRef argv) -> bool {
+            if (argc != 2) return TypeError("add() requires 2 arguments");
+            
+            py_i64 a = py_toint(py_offset(argv, 0));
+            py_i64 b = py_toint(py_offset(argv, 1));
+            
+            // Create return value using retval
+            py_newint(py_retval(), a + b);
+            return true;
         });
-
-        vm->_stdout = [](pkpy::VM* vm, const pkpy::Str& s) {
-            PK_UNUSED(vm);
-            console.AddLog(s.c_str());
-            std::cout << s;
-        };
-        vm->_stderr = [](pkpy::VM* vm, const pkpy::Str& s) {
-            PK_UNUSED(vm);
-            console.AddLog("[error] %s", s.c_str());
-            std::cerr << s;
-        };
     }
 
     // Main loop
@@ -421,11 +428,13 @@ int main(int, char**)
                     auto currentFile = editor.GetCurrentFile();
                     std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
                     
-                    try {
-                        vm->exec(code, filename, pkpy::EXEC_MODE);
+                    if (py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
                         console.AddLog("Script executed successfully.\n");
-                    } catch (...) {
-                        console.AddLog("[error] Script execution failed.\n");
+                    } else {
+                        char* exc_msg = py_formatexc();
+                        console.AddLog("[error] %s", exc_msg);
+                        py_free(exc_msg);
+                        py_clearexc(NULL);
                     }
                 }
                 
@@ -445,12 +454,14 @@ int main(int, char**)
             auto currentFile = editor.GetCurrentFile();
             std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
             
-            try {
-                vm->exec(code, filename, pkpy::EXEC_MODE);
+            if (py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
                 console.AddLog("Script executed successfully.\n");
                 show_console_window = true;  // Auto-show console when running
-            } catch (...) {
-                console.AddLog("[error] Script execution failed.\n");
+            } else {
+                char* exc_msg = py_formatexc();
+                console.AddLog("[error] %s", exc_msg);
+                py_free(exc_msg);
+                py_clearexc(NULL);
                 show_console_window = true;
             }
         }
@@ -575,7 +586,7 @@ int main(int, char**)
     }
 
     // Cleanup
-    delete vm;
+    py_finalize();
 
     SDL_WaitForGPUIdle(gpu_device);
     ImGui_ImplSDL3_Shutdown();

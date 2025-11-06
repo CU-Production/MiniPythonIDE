@@ -1,13 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(MiniPythonIDE)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 20)
 
 if (POLICY CMP0077)
     cmake_policy(SET CMP0077 NEW)
 endif ()
-
-configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config_app.h.cmake ${CMAKE_BINARY_DIR}/config_app.h)
 
 add_subdirectory(3rd_party)
 
@@ -23,16 +22,25 @@ add_executable(MiniPythonIDE
         3rd_party/imgui/misc/freetype/imgui_freetype.cpp
         3rd_party/imgui/imgui_impl_sdlgpu3.cpp
         3rd_party/imgui/imgui_impl_sdl3.cpp
-        3rd_party/ImGuiColorTextEdit/TextEditor.cpp)
+        3rd_party/ImGuiColorTextEdit/TextEditor.cpp
+        3rd_party/pocketpy/pocketpy.c)
 target_include_directories(MiniPythonIDE PRIVATE
         ${CMAKE_BINARY_DIR}
         3rd_party/imgui
         3rd_party/ImGuiColorTextEdit
         3rd_party/pocketpy
         3rd_party/tinyfiledialogs)
+
+# Disable PocketPy threads to avoid C11 atomic issues on MSVC
+target_compile_definitions(MiniPythonIDE PRIVATE PK_ENABLE_THREADS=0)
 target_link_libraries(MiniPythonIDE PRIVATE
         freetype
         SDL3::SDL3)
+
+# Link Windows socket library for PocketPy
+if(WIN32)
+    target_link_libraries(MiniPythonIDE PRIVATE ws2_32)
+endif()
 add_custom_command(
         TARGET MiniPythonIDE POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
