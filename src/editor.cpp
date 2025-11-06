@@ -1,175 +1,69 @@
-
-#if ZEP_SINGLE_HEADER == 1
-#define ZEP_SINGLE_HEADER_BUILD
-#endif
-
-// #define ZEP_CONSOLE 
 #include "editor.h"
-#include <functional>
-#include <filesystem>
-#include "config_app.h"
-#ifdef ZEP_CONSOLE
-#include <zep\imgui\console_imgui.h>
-#endif
-namespace fs = std::filesystem;
+#include <fstream>
+#include <sstream>
 
-using namespace Zep;
-
-using cmdFunc = std::function<void(const std::vector<std::string>&)>; 
-class ZepCmd : public ZepExCommand
+Editor::Editor()
 {
-public:
-    ZepCmd(ZepEditor& editor, const std::string name, cmdFunc fn)
-        : ZepExCommand(editor)
-        , m_name(name)
-        , m_func(fn)
-    {
-    }
-
-    virtual void Run(const std::vector<std::string>& args) override
-    {
-        m_func(args);
-    }
-
-    virtual const char* ExCommandName() const override
-    {
-        return m_name.c_str();
-    }
-
-private:
-    std::string m_name;
-    cmdFunc m_func;
-};
-
-struct ZepWrapper : public Zep::IZepComponent
-{
-    ZepWrapper(const fs::path& root_path, const Zep::NVec2f& pixelScale, std::function<void(std::shared_ptr<Zep::ZepMessage>)> fnCommandCB)
-        : zepEditor(fs::path(root_path.string()), pixelScale)
-        , Callback(fnCommandCB)
-    {
-        zepEditor.RegisterCallback(this);
-
-    }
-
-    virtual Zep::ZepEditor& GetEditor() const override
-    {
-        return (Zep::ZepEditor&)zepEditor;
-    }
-
-    virtual void Notify(std::shared_ptr<Zep::ZepMessage> message) override
-    {
-        Callback(message);
-
-        return;
-    }
-
-    virtual void HandleInput()
-    {
-        zepEditor.HandleInput();
-    }
-
-    Zep::ZepEditor_ImGui zepEditor;
-    std::function<void(std::shared_ptr<Zep::ZepMessage>)> Callback;
-};
-
-#ifdef ZEP_CONSOLE
-std::shared_ptr<ImGui::ZepConsole> spZep;
-#else
-std::shared_ptr<ZepWrapper> spZep;
-#endif
-
-void zep_init(const Zep::NVec2f& pixelScale)
-{
-#ifdef ZEP_CONSOLE
-    spZep = std::make_shared<ImGui::ZepConsole>(Zep::ZepPath(APP_ROOT));
-#else
-    // Initialize the editor and watch for changes
-    spZep = std::make_shared<ZepWrapper>("", Zep::NVec2f(pixelScale.x, pixelScale.y), [](std::shared_ptr<ZepMessage> spMessage) -> void {
-    });
-#endif
-
-    // This is an example of adding different fonts for text styles.
-    // If you ":e test.md" in the editor and type "# Heading 1" you will
-    // see that Zep picks a different font size for the heading.
-    auto& display = spZep->GetEditor().GetDisplay();
-    auto pImFont = ImGui::GetIO().Fonts[0].Fonts[0];
-    auto pixelHeight = pImFont->LegacySize;
-    display.SetFont(ZepTextType::UI, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight)));
-    display.SetFont(ZepTextType::Text, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight)));
-    display.SetFont(ZepTextType::Heading1, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight * 1.5)));
-    display.SetFont(ZepTextType::Heading2, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight * 1.25)));
-    display.SetFont(ZepTextType::Heading3, std::make_shared<ZepFont_ImGui>(display, pImFont, int(pixelHeight * 1.125)));
-
+    // Set language to C++ (temporary substitute for Python, similar syntax highlighting)
+    // TODO: Can customize Python language definition later
+    auto lang = TextEditor::LanguageDefinition::CPlusPlus();
+    m_textEditor.SetLanguageDefinition(lang);
+    
+    // Set default style (dark theme)
+    m_textEditor.SetPalette(TextEditor::GetDarkPalette());
+    
+    // Show line numbers
+    m_textEditor.SetShowWhitespaces(false);
+    
+    // Enable auto-indentation
+    m_textEditor.SetTabSize(4);
+    
+    // Ensure editor is not in read-only mode
+    m_textEditor.SetReadOnly(false);
+    
+    // Ensure keyboard and mouse input handling is enabled
+    m_textEditor.SetHandleKeyboardInputs(true);
+    m_textEditor.SetHandleMouseInputs(true);
 }
 
-void zep_update()
+Editor::~Editor()
 {
-    // This is required to make the editor cursor blink, and for the :ZTestFlash
-    // example
-    if (spZep)
+}
+
+void Editor::LoadFile(const std::filesystem::path& path)
+{
+    std::ifstream file(path);
+    if (file)
     {
-        spZep->GetEditor().RefreshRequired();
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        m_textEditor.SetText(buffer.str());
+        m_currentFile = path;
     }
 }
 
-void zep_destroy()
+void Editor::SaveFile(const std::filesystem::path& path)
 {
-    spZep.reset();
+    std::ofstream file(path);
+    if (file)
+    {
+        auto text = m_textEditor.GetText();
+        file << text;
+        m_currentFile = path;
+    }
 }
 
-ZepEditor& zep_get_editor()
+std::string Editor::GetText() const
 {
-    return spZep->GetEditor();
+    return m_textEditor.GetText();
 }
 
-void zep_load(const fs::path& file)
+void Editor::SetText(const std::string& text)
 {
-#ifndef ZEP_CONSOLE
-    auto pBuffer = zep_get_editor().InitWithFileOrDir(file.string());
-#endif
+    m_textEditor.SetText(text);
 }
 
-void zep_show(const Zep::NVec2i& displaySize, const Zep::NVec2i& displayPos)
+void Editor::Render(const char* title, const ImVec2& size, bool border)
 {
-    bool show = true;
-#ifdef ZEP_CONSOLE
-    spZep->Draw("Console", &show, ImVec4(0, 0, 500, 400), true);
-    spZep->AddLog("Hello!");
-#else
-    ImGui::SetNextWindowSize(ImVec2(displaySize.x, displaySize.y), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(displayPos.x, displayPos.y), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Zep", &show, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar))
-    {
-        ImGui::End();
-        return;
-    }
-
-    auto min = ImGui::GetCursorScreenPos();
-    auto max = ImGui::GetContentRegionAvail();
-    if (max.x <= 0)
-        max.x = 1;
-    if (max.y <= 0)
-        max.y = 1;
-    ImGui::InvisibleButton("ZepContainer", max);
-
-    // Fill the window
-    max.x = min.x + max.x;
-    max.y = min.y + max.y;
-
-    spZep->zepEditor.SetDisplayRegion(Zep::NVec2f(min.x, min.y), Zep::NVec2f(max.x, max.y));
-    spZep->zepEditor.Display();
-    bool zep_focused = ImGui::IsWindowFocused();
-    if (zep_focused)
-    {
-        spZep->zepEditor.HandleInput();
-    }
-
-    // TODO: A Better solution for this; I think the audio graph is creating a new window and stealing focus
-    static int focus_count = 0;
-    if (focus_count++ < 2)
-    {
-        ImGui::SetWindowFocus();
-    }
-    ImGui::End();
-#endif
+    m_textEditor.Render(title, size, border);
 }

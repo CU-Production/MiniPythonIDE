@@ -22,21 +22,17 @@ add_executable(MiniPythonIDE
         3rd_party/imgui/imgui_widgets.cpp
         3rd_party/imgui/misc/freetype/imgui_freetype.cpp
         3rd_party/imgui/imgui_impl_sdlgpu3.cpp
-        3rd_party/imgui/imgui_impl_sdl3.cpp)
+        3rd_party/imgui/imgui_impl_sdl3.cpp
+        3rd_party/ImGuiColorTextEdit/TextEditor.cpp)
 target_include_directories(MiniPythonIDE PRIVATE
         ${CMAKE_BINARY_DIR}
         3rd_party/imgui
         3rd_party/ImGuiColorTextEdit
         3rd_party/pocketpy
-        3rd_party/zep/include
         3rd_party/tinyfiledialogs)
 target_link_libraries(MiniPythonIDE PRIVATE
         freetype
         SDL3::SDL3)
-target_compile_definitions(MiniPythonIDE PRIVATE
-        ZEP_FEATURE_CPP_FILE_SYSTEM
-        ZEP_USE_SDL
-        ZEP_SINGLE_HEADER=1)
 add_custom_command(
         TARGET MiniPythonIDE POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy

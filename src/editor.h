@@ -1,11 +1,26 @@
 #pragma once
 
-#include <zep.h>
+#include "TextEditor.h"
+#include "imgui.h"
+#include <filesystem>
 
-// Helpers to create zep editor
-Zep::ZepEditor& zep_get_editor();
-void zep_init(const Zep::NVec2f& pixelScale);
-void zep_update();
-void zep_show(const Zep::NVec2i& displaySize, const Zep::NVec2i& displayPos);
-void zep_destroy();
-void zep_load(const std::filesystem::path& file);
+// Simple wrapper class for TextEditor
+class Editor
+{
+public:
+    Editor();
+    ~Editor();
+    
+    void LoadFile(const std::filesystem::path& path);
+    void SaveFile(const std::filesystem::path& path);
+    std::string GetText() const;
+    void SetText(const std::string& text);
+    void Render(const char* title = "Text Editor", const ImVec2& size = ImVec2(), bool border = false);
+    
+    TextEditor& GetTextEditor() { return m_textEditor; }
+    const std::filesystem::path& GetCurrentFile() const { return m_currentFile; }
+    
+private:
+    TextEditor m_textEditor;
+    std::filesystem::path m_currentFile;
+};
