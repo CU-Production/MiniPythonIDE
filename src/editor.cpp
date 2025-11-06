@@ -4,9 +4,8 @@
 
 Editor::Editor()
 {
-    // Set language to C++ (temporary substitute for Python, similar syntax highlighting)
-    // TODO: Can customize Python language definition later
-    auto lang = TextEditor::LanguageDefinition::CPlusPlus();
+    // Set language to Python with full syntax highlighting support
+    auto lang = TextEditor::LanguageDefinition::Python();
     m_textEditor.SetLanguageDefinition(lang);
     
     // Set default style (dark theme)

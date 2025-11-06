@@ -3175,3 +3175,82 @@ const TextEditor::LanguageDefinition& TextEditor::LanguageDefinition::Lua()
 	}
 	return langDef;
 }
+
+const TextEditor::LanguageDefinition& TextEditor::LanguageDefinition::Python()
+{
+	static bool inited = false;
+	static LanguageDefinition langDef;
+	if (!inited)
+	{
+		static const char* const keywords[] = {
+			"and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del",
+			"elif", "else", "except", "False", "finally", "for", "from", "global", "if", "import",
+			"in", "is", "lambda", "None", "nonlocal", "not", "or", "pass", "raise", "return",
+			"True", "try", "while", "with", "yield"
+		};
+
+		for (auto& k : keywords)
+			langDef.mKeywords.insert(k);
+
+		static const char* const identifiers[] = {
+			"abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes", "callable", "chr",
+			"classmethod", "compile", "complex", "delattr", "dict", "dir", "divmod", "enumerate",
+			"eval", "exec", "filter", "float", "format", "frozenset", "getattr", "globals", "hasattr",
+			"hash", "help", "hex", "id", "input", "int", "isinstance", "issubclass", "iter", "len",
+			"list", "locals", "map", "max", "memoryview", "min", "next", "object", "oct", "open",
+			"ord", "pow", "print", "property", "range", "repr", "reversed", "round", "set", "setattr",
+			"slice", "sorted", "staticmethod", "str", "sum", "super", "tuple", "type", "vars", "zip",
+			"__import__", "__name__", "__doc__", "__package__", "__loader__", "__spec__", "__file__",
+			"ArithmeticError", "AssertionError", "AttributeError", "BaseException", "BlockingIOError",
+			"BrokenPipeError", "BufferError", "BytesWarning", "ChildProcessError", "ConnectionAbortedError",
+			"ConnectionError", "ConnectionRefusedError", "ConnectionResetError", "DeprecationWarning",
+			"EOFError", "Ellipsis", "EnvironmentError", "Exception", "FileExistsError", "FileNotFoundError",
+			"FloatingPointError", "FutureWarning", "GeneratorExit", "IOError", "ImportError", "ImportWarning",
+			"IndentationError", "IndexError", "InterruptedError", "IsADirectoryError", "KeyError",
+			"KeyboardInterrupt", "LookupError", "MemoryError", "ModuleNotFoundError", "NameError",
+			"NotADirectoryError", "NotImplemented", "NotImplementedError", "OSError", "OverflowError",
+			"PendingDeprecationWarning", "PermissionError", "ProcessLookupError", "RecursionError",
+			"ReferenceError", "ResourceWarning", "RuntimeError", "RuntimeWarning", "StopAsyncIteration",
+			"StopIteration", "SyntaxError", "SyntaxWarning", "SystemError", "SystemExit", "TabError",
+			"TimeoutError", "TypeError", "UnboundLocalError", "UnicodeDecodeError", "UnicodeEncodeError",
+			"UnicodeError", "UnicodeTranslateError", "UnicodeWarning", "UserWarning", "ValueError",
+			"Warning", "ZeroDivisionError"
+		};
+		for (auto& k : identifiers)
+		{
+			Identifier id;
+			id.mDeclaration = "Built-in function";
+			langDef.mIdentifiers.insert(std::make_pair(std::string(k), id));
+		}
+
+		// Python string patterns: support for ", ', r"", f"", etc.
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[rf]?\\\"\\\"\\\"([^\\\"\\\\]|\\\\.|\\\"[^\\\"]|\\\"\\\"[^\\\"])*\\\"\\\"\\\"", PaletteIndex::String));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[rf]?\\\'\\\'\\\'([^\\\'\\\\]|\\\\.|\\\'[^\\\']|\\\'\\\'[^\\\'])*\\\'\\\'\\\'", PaletteIndex::String));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[rbf]?\\\"(\\\\.|[^\\\"])*\\\"", PaletteIndex::String));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[rbf]?\\\'(\\\\.|[^\\\'])*\\\'", PaletteIndex::String));
+		
+		// Python number patterns
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("0[xX][0-9a-fA-F]+", PaletteIndex::Number));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("0[bB][01]+", PaletteIndex::Number));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("0[oO][0-7]+", PaletteIndex::Number));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?", PaletteIndex::Number));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[+-]?[0-9]+", PaletteIndex::Number));
+		
+		// Identifiers and punctuation
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[a-zA-Z_][a-zA-Z0-9_]*", PaletteIndex::Identifier));
+		langDef.mTokenRegexStrings.push_back(std::make_pair<std::string, PaletteIndex>("[\\[\\]\\{\\}\\!\\%\\^\\&\\*\\(\\)\\-\\+\\=\\~\\|\\<\\>\\?\\/\\;\\,\\.\\'\\:]", PaletteIndex::Punctuation));
+
+		// Python comments
+		langDef.mCommentStart = "\"\"\"";
+		langDef.mCommentEnd = "\"\"\"";
+		langDef.mSingleLineComment = "#";
+
+		langDef.mCaseSensitive = true;
+		langDef.mAutoIndentation = true;
+
+		langDef.mName = "Python";
+
+		inited = true;
+	}
+	return langDef;
+}
