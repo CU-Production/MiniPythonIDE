@@ -750,11 +750,27 @@ int main(int, char**)
                     bool node_open = ImGui::TreeNodeEx("##tree", ImGuiTreeNodeFlags_SpanFullWidth);
                     ImGui::SameLine();
                     ImGui::Text("%s", var.name.c_str());
+                    // Show tooltip on hover for name
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", var.name.c_str());
+                    }
                     
                     ImGui::TableNextColumn();
                     ImGui::Text("%s", var.value.c_str());
+                    // Show tooltip on hover for value
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", var.value.c_str());
+                    }
+                    
                     ImGui::TableNextColumn();
                     ImGui::Text("%s", var.type.c_str());
+                    // Show tooltip on hover for type
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", var.type.c_str());
+                    }
                     
                     if (node_open)
                     {
@@ -770,10 +786,27 @@ int main(int, char**)
                 {
                     // Simple text for non-expandable types
                     ImGui::Text("%s", var.name.c_str());
+                    // Show tooltip on hover for name
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", var.name.c_str());
+                    }
+                    
                     ImGui::TableNextColumn();
                     ImGui::Text("%s", var.value.c_str());
+                    // Show tooltip on hover for value
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", var.value.c_str());
+                    }
+                    
                     ImGui::TableNextColumn();
                     ImGui::Text("%s", var.type.c_str());
+                    // Show tooltip on hover for type
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", var.type.c_str());
+                    }
                 }
                 ImGui::PopID();
             };
@@ -795,10 +828,14 @@ int main(int, char**)
                     }
                     else
                     {
-                        ImGui::BeginTable("LocalVars", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
-                        ImGui::TableSetupColumn("Name");
-                        ImGui::TableSetupColumn("Value");
-                        ImGui::TableSetupColumn("Type");
+                        ImGui::BeginTable("LocalVars", 3, 
+                            ImGuiTableFlags_Borders | 
+                            ImGuiTableFlags_RowBg | 
+                            ImGuiTableFlags_Resizable |
+                            ImGuiTableFlags_ScrollY);
+                        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
                         ImGui::TableHeadersRow();
                         
                         for (const auto& var : locals)
@@ -818,10 +855,14 @@ int main(int, char**)
                     }
                     else
                     {
-                        ImGui::BeginTable("GlobalVars", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
-                        ImGui::TableSetupColumn("Name");
-                        ImGui::TableSetupColumn("Value");
-                        ImGui::TableSetupColumn("Type");
+                        ImGui::BeginTable("GlobalVars", 3, 
+                            ImGuiTableFlags_Borders | 
+                            ImGuiTableFlags_RowBg | 
+                            ImGuiTableFlags_Resizable |
+                            ImGuiTableFlags_ScrollY);
+                        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
                         ImGui::TableHeadersRow();
                         
                         for (const auto& var : globals)
