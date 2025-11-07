@@ -79,4 +79,6 @@ add_custom_command(
         ARGS ${CMAKE_CURRENT_SOURCE_DIR}/test_module_display.py ${CMAKE_CURRENT_BINARY_DIR}/test_module_display.py
         COMMAND ${CMAKE_COMMAND} -E copy
         ARGS ${CMAKE_CURRENT_SOURCE_DIR}/test_nested_module.py ${CMAKE_CURRENT_BINARY_DIR}/test_nested_module.py
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ARGS ${CMAKE_CURRENT_SOURCE_DIR}/test_object_display.py ${CMAKE_CURRENT_BINARY_DIR}/test_object_display.py
 )

@@ -233,11 +233,41 @@ static std::string GetSimpleTypeName(py_Type type) {
         case tp_slice: return "slice";
         case tp_bytes: return "bytes";
         default: {
+            // Try to get the actual type name using py_tpname
+            const char* type_name = py_tpname(type);
+            if (type_name && type_name[0] != '\0') {
+                return std::string(type_name);
+            }
             std::ostringstream oss;
             oss << "type_" << type;
             return oss.str();
         }
     }
+}
+
+// Helper to check if an object can have custom attributes
+static bool IsExpandableObject(py_Ref value) {
+    if (!value || !value->is_ptr) {
+        return false;  // Not a pointer object
+    }
+    
+    py_Type type = py_typeof(value);
+    
+    // Don't expand these types (handled specially or shouldn't be expanded)
+    if (type == tp_int || type == tp_float || type == tp_bool || 
+        type == tp_str || type == tp_bytes ||
+        type == tp_function || type == tp_type || type == tp_nil ||
+        type == tp_range || type == tp_slice) {
+        return false;
+    }
+    
+    // list, tuple, dict, module are handled separately
+    if (py_islist(value) || py_istuple(value) || py_isdict(value) || type == tp_module) {
+        return false;
+    }
+    
+    // All other pointer objects can potentially have attributes
+    return true;
 }
 
 // Helper to safely convert value to string representation
@@ -276,6 +306,13 @@ static std::string GetValueRepr(py_Ref value) {
     } else if (py_isdict(value)) {
         int len = py_dict_len(value);
         return std::string("{...} (") + std::to_string(len) + " items)";
+    } else if (IsExpandableObject(value)) {
+        // For custom objects, show type name
+        const char* type_name = py_tpname(type);
+        if (type_name && type_name[0] != '\0') {
+            return std::string("<") + type_name + " object>";
+        }
+        return "<object>";
     }
     
     return "<object>";
@@ -302,7 +339,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                 
                 // Check if child also has children (nested structures)
                 py_Type item_type = py_typeof(item);
-                if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                     child.has_children = true;
                     // Recursively extract children for nested structures (limited depth)
                     ExtractChildVariables(item, child.children, 50);
@@ -339,7 +376,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                     
                     // Check if child also has children (nested structures)
                     py_Type item_type = py_typeof(item);
-                    if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                    if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                         child.has_children = true;
                         ExtractChildVariables(item, child.children, 50);
                     } else {
@@ -370,7 +407,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                 
                 // Check if child also has children (nested structures)
                 py_Type item_type = py_typeof(item);
-                if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                     child.has_children = true;
                     ExtractChildVariables(item, child.children, 50);
                 } else {
@@ -405,7 +442,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                     
                     // Check if child also has children (nested structures)
                     py_Type item_type = py_typeof(item);
-                    if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                    if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                         child.has_children = true;
                         ExtractChildVariables(item, child.children, 50);
                     } else {
@@ -449,7 +486,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             
             // Check if child also has children (nested structures)
             py_Type val_type = py_typeof(val);
-            if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+            if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || IsExpandableObject(val)) {
                 child.has_children = true;
                 ExtractChildVariables(val, child.children, 50);
             } else {
@@ -540,6 +577,112 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             children.push_back(note);
         }
     }
+    else if (IsExpandableObject(value)) {
+        // Extract object attributes using py_applydict with segmented display
+        // First, collect all attributes
+        std::vector<DebugVariable> all_attrs;
+        
+        struct CollectContext {
+            std::vector<DebugVariable>* items;
+        };
+        
+        CollectContext collect_ctx;
+        collect_ctx.items = &all_attrs;
+        
+        auto collect_attrs = [](py_Name name, py_Ref attr_value, void* ctx) -> bool {
+            CollectContext* context = static_cast<CollectContext*>(ctx);
+            
+            // Skip private attributes starting with '_' (for performance)
+            const char* name_str = py_name2str(name);
+            if (name_str && name_str[0] == '_') {
+                return true;  // Continue iteration
+            }
+            
+            DebugVariable child;
+            child.name = name_str ? name_str : "(unnamed)";
+            child.value = GetValueRepr(attr_value);
+            child.type = GetSimpleTypeName(py_typeof(attr_value));
+            
+            // Check if attribute has children
+            py_Type val_type = py_typeof(attr_value);
+            if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || IsExpandableObject(attr_value)) {
+                child.has_children = true;
+                // Lazy load - don't extract children until user expands
+            } else {
+                child.has_children = false;
+            }
+            
+            context->items->push_back(child);
+            return true;  // Continue iteration
+        };
+        
+        // Collect attributes using py_applydict
+        py_applydict(value, collect_attrs, &collect_ctx);
+        
+        // Sort attributes by name for better readability
+        std::sort(all_attrs.begin(), all_attrs.end(), 
+            [](const DebugVariable& a, const DebugVariable& b) {
+                return a.name < b.name;
+            });
+        
+        int total_len = all_attrs.size();
+        
+        // Apply segmented display for large objects
+        if (total_len <= max_items) {
+            // Small object - add all attributes directly
+            for (auto& attr : all_attrs) {
+                // Extract children if they exist (lazy load)
+                if (attr.has_children) {
+                    py_Name name = py_name(attr.name.c_str());
+                    py_Ref attr_value = py_getdict(value, name);
+                    if (attr_value) {
+                        ExtractChildVariables(attr_value, attr.children, 50);
+                    }
+                }
+                children.push_back(attr);
+            }
+        } else {
+            // Large object - create segments
+            int num_segments = (total_len + max_items - 1) / max_items;
+            
+            for (int seg = 0; seg < num_segments; seg++) {
+                int start = seg * max_items;
+                int end = std::min(start + max_items - 1, total_len - 1);
+                
+                DebugVariable segment;
+                segment.name = "[" + std::to_string(start) + "-" + std::to_string(end) + "]";
+                segment.value = "(" + std::to_string(end - start + 1) + " attributes)";
+                segment.type = "segment";
+                segment.has_children = true;
+                
+                // Add attributes in this segment
+                for (int i = start; i <= end && i < (int)all_attrs.size(); i++) {
+                    auto& attr = all_attrs[i];
+                    // Extract children if they exist (lazy load)
+                    if (attr.has_children) {
+                        py_Name name = py_name(attr.name.c_str());
+                        py_Ref attr_value = py_getdict(value, name);
+                        if (attr_value) {
+                            ExtractChildVariables(attr_value, attr.children, 50);
+                        }
+                    }
+                    segment.children.push_back(attr);
+                }
+                
+                children.push_back(segment);
+            }
+        }
+        
+        // If no attributes were found, show a note
+        if (all_attrs.empty()) {
+            DebugVariable note;
+            note.name = "(no attributes)";
+            note.value = "Object has no public attributes";
+            note.type = "";
+            note.has_children = false;
+            children.push_back(note);
+        }
+    }
 }
 
 // Helper callback for py_dict_apply to collect variables
@@ -574,7 +717,8 @@ static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
     
     // Check if variable has children (expandable types)
     py_Type val_type = py_typeof(val);
-    if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || val_type == tp_module) {
+    if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || 
+        val_type == tp_module || IsExpandableObject(val)) {
         var.has_children = true;
         // Extract children for expandable types
         ExtractChildVariables(val, var.children);
@@ -645,7 +789,8 @@ void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variable
         
         // Check if variable has children (expandable types)
         py_Type val_type = py_typeof(value);
-        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || val_type == tp_module) {
+        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || 
+            val_type == tp_module || IsExpandableObject(value)) {
             var.has_children = true;
             // Extract children for expandable types
             ExtractChildVariables(value, var.children);
