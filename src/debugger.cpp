@@ -203,58 +203,6 @@ void Debugger::SyncBreakpointsToDebugger() {
     }
 }
 
-// Helper callback for py_dict_apply to collect variables
-struct CollectVariablesContext {
-    std::vector<DebugVariable>* variables;
-    bool filter_builtins;
-};
-
-static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
-    CollectVariablesContext* context = (CollectVariablesContext*)ctx;
-    
-    DebugVariable var;
-    
-    // Get variable name
-    const char* key_str = py_tostr(key);
-    if (key_str) {
-        var.name = key_str;
-    }
-    
-    // Skip built-in functions and modules if filtering is enabled
-    if (context->filter_builtins && (!var.name.empty() && var.name[0] == '_')) {
-        return true; // Continue iteration
-    }
-    
-    // Get variable value
-    const char* value_str = py_tostr(val);
-    if (value_str) {
-        var.value = value_str;
-    }
-    
-    // Get variable type
-    py_Type type = py_typeof(val);
-    
-    // Get type name by calling type.__name__ on the type object
-    py_tpobject(type);
-    py_ItemRef name_attr = py_getdict(py_r0(), py_name("__name__"));
-    if (name_attr) {
-        const char* type_name = py_tostr(name_attr);
-        if (type_name) {
-            var.type = type_name;
-        }
-    }
-    
-    if (var.type.empty()) {
-        // Fallback: use type id
-        std::ostringstream oss;
-        oss << "type_" << type;
-        var.type = oss.str();
-    }
-    
-    context->variables->push_back(var);
-    return true; // Continue iteration
-}
-
 // Helper to safely get type name
 static std::string GetSimpleTypeName(py_Type type) {
     // Map common types to readable names
@@ -319,6 +267,40 @@ static std::string GetValueRepr(py_Ref value) {
     }
     
     return "<object>";
+}
+
+// Helper callback for py_dict_apply to collect variables
+struct CollectVariablesContext {
+    std::vector<DebugVariable>* variables;
+    bool filter_builtins;
+};
+
+static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
+    CollectVariablesContext* context = (CollectVariablesContext*)ctx;
+    
+    // Key should be string for normal dicts
+    if (!py_isstr(key)) {
+        return true; // Skip non-string keys, continue iteration
+    }
+    
+    DebugVariable var;
+    
+    // Get variable name (key is guaranteed to be string now)
+    var.name = py_tostr(key);
+    
+    // Skip built-in functions and modules if filtering is enabled
+    if (context->filter_builtins && (!var.name.empty() && var.name[0] == '_')) {
+        return true; // Continue iteration
+    }
+    
+    // Get variable value using safe method
+    var.value = GetValueRepr(val);
+    
+    // Get variable type using safe method
+    var.type = GetSimpleTypeName(py_typeof(val));
+    
+    context->variables->push_back(var);
+    return true; // Continue iteration
 }
 
 // Helper to extract variables from a Python object (dict/namedict)
