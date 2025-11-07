@@ -416,6 +416,17 @@ void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
         return;
     }
     
+    // Get current location BEFORE calling debugger
+    int current_line;
+    const char* current_file = py_Frame_sourceloc(frame, &current_line);
+    
+    // Check if we've moved to a different line (to avoid multiple pauses on same line)
+    static int last_paused_line = -1;
+    static std::string last_paused_file;
+    
+    bool line_changed = (current_line != last_paused_line) || 
+                       (current_file && current_file != last_paused_file);
+    
     // Call internal debugger trace handler
     C11_DEBUGGER_STATUS status = c11_debugger_on_trace(frame, event);
     
@@ -428,7 +439,18 @@ void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
     // Check if we should pause
     C11_STOP_REASON reason = c11_debugger_should_pause();
     
-    if (reason != C11_DEBUGGER_NOSTOP) {
+    // Only pause if:
+    // 1. Debugger says we should pause, AND
+    // 2. We've moved to a different line (or it's a breakpoint/exception)
+    if (reason != C11_DEBUGGER_NOSTOP && 
+        (line_changed || reason == C11_DEBUGGER_BP || reason == C11_DEBUGGER_EXCEPTION)) {
+        
+        // Update last paused location
+        last_paused_line = current_line;
+        if (current_file) {
+            last_paused_file = current_file;
+        }
+        
         // We should pause
         s_instance->m_paused.store(true);
         s_instance->UpdateDebugInfo(frame);
