@@ -36,6 +36,7 @@ public:
 		CurrentLineFill,
 		CurrentLineFillInactive,
 		CurrentLineEdge,
+		DebugCurrentLine,  // Line where debugger is currently paused
 		Max
 	};
 
@@ -194,6 +195,16 @@ public:
 
 	void SetErrorMarkers(const ErrorMarkers& aMarkers) { mErrorMarkers = aMarkers; }
 	void SetBreakpoints(const Breakpoints& aMarkers) { mBreakpoints = aMarkers; }
+	const Breakpoints& GetBreakpoints() const { return mBreakpoints; }
+	void AddBreakpoint(int aLine) { mBreakpoints.insert(aLine); }
+	void RemoveBreakpoint(int aLine) { mBreakpoints.erase(aLine); }
+	void ToggleBreakpoint(int aLine);
+	bool HasBreakpoint(int aLine) const { return mBreakpoints.count(aLine) != 0; }
+	
+	// Debug current line (where debugger is paused)
+	void SetDebugCurrentLine(int aLine) { mDebugCurrentLine = aLine; }
+	void ClearDebugCurrentLine() { mDebugCurrentLine = -1; }
+	int GetDebugCurrentLine() const { return mDebugCurrentLine; }
 
 	void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), bool aBorder = false);
 	void SetText(const std::string& aText);
@@ -381,6 +392,7 @@ private:
 	bool mCheckComments;
 	Breakpoints mBreakpoints;
 	ErrorMarkers mErrorMarkers;
+	int mDebugCurrentLine;  // Line where debugger is currently paused (-1 if not debugging)
 	ImVec2 mCharAdvance;
 	Coordinates mInteractiveStart, mInteractiveEnd;
 	std::string mLineBuffer;

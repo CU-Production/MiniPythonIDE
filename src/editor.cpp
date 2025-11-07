@@ -64,5 +64,49 @@ void Editor::SetText(const std::string& text)
 
 void Editor::Render(const char* title, const ImVec2& size, bool border)
 {
+    // Store breakpoints before render
+    auto oldBreakpoints = m_textEditor.GetBreakpoints();
+    
     m_textEditor.Render(title, size, border);
+    
+    // Check if breakpoints changed (user double-clicked line number)
+    auto newBreakpoints = m_textEditor.GetBreakpoints();
+    if (oldBreakpoints != newBreakpoints && m_breakpointCallback)
+    {
+        // Find which breakpoint was added or removed
+        for (int line : newBreakpoints)
+        {
+            if (oldBreakpoints.count(line) == 0)
+            {
+                // Breakpoint added
+                m_breakpointCallback(line, true);
+            }
+        }
+        for (int line : oldBreakpoints)
+        {
+            if (newBreakpoints.count(line) == 0)
+            {
+                // Breakpoint removed
+                m_breakpointCallback(line, false);
+            }
+        }
+    }
+    
+    // Store as unordered_set
+    m_lastKnownBreakpoints.clear();
+    m_lastKnownBreakpoints.insert(newBreakpoints.begin(), newBreakpoints.end());
+}
+
+void Editor::SyncBreakpoints(const std::set<int>& breakpoints)
+{
+    TextEditor::Breakpoints editorBreakpoints;
+    for (int line : breakpoints)
+    {
+        editorBreakpoints.insert(line);
+    }
+    m_textEditor.SetBreakpoints(editorBreakpoints);
+    
+    // Store as unordered_set
+    m_lastKnownBreakpoints.clear();
+    m_lastKnownBreakpoints.insert(breakpoints.begin(), breakpoints.end());
 }

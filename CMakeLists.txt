@@ -33,7 +33,8 @@ set(MINIPYTHONIDE_SOURCES
 if(ENABLE_DEBUGGER)
     list(APPEND MINIPYTHONIDE_SOURCES
         src/debugger.cpp
-        src/debugger.h)
+        src/debugger.h
+        src/pocketpy_debugger_internal.h)
 endif()
 
 add_executable(MiniPythonIDE ${MINIPYTHONIDE_SOURCES})
@@ -44,8 +45,12 @@ target_include_directories(MiniPythonIDE PRIVATE
         3rd_party/pocketpy
         3rd_party/tinyfiledialogs)
 
-# Disable PocketPy threads to avoid C11 atomic issues on MSVC
-target_compile_definitions(MiniPythonIDE PRIVATE PK_ENABLE_THREADS=0)
+# PocketPy threading is now enabled with C11 atomics support
+if(MSVC)
+    target_compile_options(MiniPythonIDE PRIVATE "/bigobj")
+    target_compile_options(MiniPythonIDE PRIVATE "/utf-8")
+    target_compile_options(MiniPythonIDE PRIVATE "/experimental:c11atomics")
+endif()
 
 # Add ENABLE_DEBUGGER definition if debugger is enabled
 if(ENABLE_DEBUGGER)

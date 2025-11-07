@@ -273,6 +273,14 @@ int main(int, char**)
 #ifdef ENABLE_DEBUGGER
     bool show_variables_window = false;
     bool show_callstack_window = false;
+    bool show_breakpoints_window = false;
+    
+    // Breakpoint add dialog state
+    static char breakpoint_file[256] = "";
+    static int breakpoint_line = 1;
+    
+    // Flag to indicate we're in a nested event loop (debugging paused)
+    static bool in_debug_pause = false;
 #endif
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -284,6 +292,22 @@ int main(int, char**)
     {
         editor.LoadFile("test.py");
     }
+
+#ifdef ENABLE_DEBUGGER
+    // Setup breakpoint callback - sync editor breakpoints with debugger
+    editor.SetBreakpointCallback([&](int line, bool added) {
+        auto currentFile = editor.GetCurrentFile();
+        std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+        
+        if (added) {
+            debugger.AddBreakpoint(filename, line);
+            console.AddLog("Breakpoint added: %s:%d\n", filename.c_str(), line);
+        } else {
+            debugger.RemoveBreakpoint(filename, line);
+            console.AddLog("Breakpoint removed: %s:%d\n", filename.c_str(), line);
+        }
+    });
+#endif
 
     // Init pocket.py
     py_initialize();
@@ -315,6 +339,7 @@ int main(int, char**)
         });
     }
 
+
     // Main loop
     bool done = false;
     while (!done)
@@ -333,6 +358,18 @@ int main(int, char**)
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+
+#ifdef ENABLE_DEBUGGER
+        // Update debug current line highlighting
+        if (debugger.IsPaused())
+        {
+            editor.SetDebugCurrentLine(debugger.GetCurrentLine());
+        }
+        else
+        {
+            editor.ClearDebugCurrentLine();
+        }
+#endif
 
         // Menu Bar
         if (ImGui::BeginMainMenuBar())
@@ -464,10 +501,22 @@ int main(int, char**)
             {
                 if (ImGui::MenuItem("Start Debugging", "F9", false, !debugger.IsDebugging()))
                 {
-                    debugger.Start();
                     show_variables_window = true;
                     show_callstack_window = true;
                     show_console_window = true;
+                    
+                    // Get code and filename
+                    std::string code = editor.GetText();
+                    std::string filename = editor.GetCurrentFile().empty() ? 
+                        "<editor>" : editor.GetCurrentFile().string();
+                    
+                    // Start debugging with log callback
+                    // NOTE: StartBlocking() will BLOCK until debug session completes
+                    auto logCallback = [](const std::string& msg) {
+                        console.AddLog("%s", msg.c_str());
+                    };
+                    
+                    debugger.Start(code, filename, logCallback);
                 }
                 
                 if (ImGui::MenuItem("Stop Debugging", nullptr, false, debugger.IsDebugging()))
@@ -500,6 +549,7 @@ int main(int, char**)
                 ImGui::Separator();
                 ImGui::MenuItem("Show Variables", nullptr, &show_variables_window, debugger.IsDebugging());
                 ImGui::MenuItem("Show Call Stack", nullptr, &show_callstack_window, debugger.IsDebugging());
+                ImGui::MenuItem("Show Breakpoints", nullptr, &show_breakpoints_window);
                 
                 ImGui::EndMenu();
             }
@@ -509,7 +559,77 @@ int main(int, char**)
         }
 
         // Handle hotkeys - must be checked outside of menu
-        // F5 - Run Script
+        
+#ifdef ENABLE_DEBUGGER
+        // F9 - Start Debugging
+        if (ImGui::IsKeyPressed(ImGuiKey_F9) && !debugger.IsDebugging())
+        {
+            show_variables_window = true;
+            show_callstack_window = true;
+            show_console_window = true;
+            
+            // Get code and filename
+            std::string code = editor.GetText();
+            std::string filename = editor.GetCurrentFile().empty() ? 
+                "<editor>" : editor.GetCurrentFile().string();
+            
+            // Start debugging with log callback
+            auto logCallback = [](const std::string& msg) {
+                console.AddLog("%s", msg.c_str());
+            };
+            
+            debugger.Start(code, filename, logCallback);
+        }
+        
+        // F5 - Continue (when debugging) or Run Script (when not debugging)
+        if (ImGui::IsKeyPressed(ImGuiKey_F5))
+        {
+            if (debugger.IsDebugging() && debugger.IsPaused())
+            {
+                debugger.Continue();
+            }
+            else if (!debugger.IsDebugging())
+            {
+                std::string code = editor.GetText();
+                auto currentFile = editor.GetCurrentFile();
+                std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+                
+                if (py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
+                    console.AddLog("Script executed successfully.\n");
+                    show_console_window = true;  // Auto-show console when running
+                } else {
+                    char* exc_msg = py_formatexc();
+                    console.AddLog("[error] %s", exc_msg);
+                    py_free(exc_msg);
+                    py_clearexc(NULL);
+                    show_console_window = true;
+                }
+            }
+        }
+        
+        // F10 - Step Over
+        if (ImGui::IsKeyPressed(ImGuiKey_F10) && debugger.IsPaused())
+        {
+            debugger.StepOver();
+        }
+        
+        // F11 - Step Into
+        if (ImGui::IsKeyPressed(ImGuiKey_F11) && debugger.IsPaused())
+        {
+            bool shift = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
+            if (shift)
+            {
+                // Shift+F11 = Step Out
+                debugger.StepOut();
+            }
+            else
+            {
+                // F11 = Step Into
+                debugger.StepInto();
+            }
+        }
+#else
+        // F5 - Run Script (when debugger not enabled)
         if (ImGui::IsKeyPressed(ImGuiKey_F5))
         {
             std::string code = editor.GetText();
@@ -527,6 +647,7 @@ int main(int, char**)
                 show_console_window = true;
             }
         }
+#endif
         
         // Ctrl+O - Open File
         if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))
@@ -619,24 +740,21 @@ int main(int, char**)
             {
                 if (ImGui::Button("Start Debug (F9)"))
                 {
-                    debugger.Start();
                     show_variables_window = true;
                     show_callstack_window = true;
+                    show_console_window = true;
                     
                     std::string code = editor.GetText();
                     auto currentFile = editor.GetCurrentFile();
-                    std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+                    std::string filename = currentFile.empty() ? "<editor>" : currentFile.string();
                     
-                    if (!py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
-                        char* exc_msg = py_formatexc();
-                        console.AddLog("[error] %s", exc_msg);
-                        py_free(exc_msg);
-                        py_clearexc(NULL);
-                        debugger.Stop();
-                    } else {
-                        debugger.Stop();
-                    }
-                    show_console_window = true;
+                    // Start debugging with log callback
+                    // NOTE: StartBlocking() will BLOCK until debug session completes
+                    auto logCallback = [](const std::string& msg) {
+                        console.AddLog("%s", msg.c_str());
+                    };
+                    
+                    debugger.Start(code, filename, logCallback);
                 }
             }
             else
@@ -650,15 +768,8 @@ int main(int, char**)
                 
                 ImGui::SameLine();
                 
-                bool is_paused = debugger.IsPaused();
-                if (!is_paused)
-                {
-                    if (ImGui::Button("Pause"))
-                    {
-                        debugger.Pause();
-                    }
-                }
-                else
+                // Show control buttons only when paused
+                if (debugger.IsPaused())
                 {
                     if (ImGui::Button("Continue (F5)"))
                     {
@@ -682,6 +793,10 @@ int main(int, char**)
                     {
                         debugger.StepOut();
                     }
+                }
+                else if (debugger.IsRunning())
+                {
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Running...");
                 }
             }
             
@@ -784,6 +899,177 @@ int main(int, char**)
                             ImGui::SetTooltip("%s:%d", frame.filename.c_str(), frame.lineno);
                         }
                     }
+                }
+            }
+            ImGui::End();
+        }
+
+        // Breakpoints Window
+        if (show_breakpoints_window)
+        {
+            if (ImGui::Begin("Breakpoints", &show_breakpoints_window))
+            {
+                ImGui::Text("Manage Breakpoints");
+                ImGui::Separator();
+                
+                // Add breakpoint section
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.3f, 0.4f, 1.0f));
+                ImGui::BeginChild("AddBreakpoint", ImVec2(0, 100), true);
+                ImGui::Text("Add New Breakpoint");
+                ImGui::Spacing();
+                
+                ImGui::Text("File:");
+                ImGui::SameLine();
+                ImGui::InputText("##bpfile", breakpoint_file, sizeof(breakpoint_file));
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Enter filename (e.g., test.py or <string>)");
+                }
+                
+                ImGui::Text("Line:");
+                ImGui::SameLine();
+                ImGui::InputInt("##bpline", &breakpoint_line);
+                if (breakpoint_line < 1) breakpoint_line = 1;
+                
+                ImGui::Spacing();
+                if (ImGui::Button("Add Breakpoint"))
+                {
+                    if (strlen(breakpoint_file) > 0 && breakpoint_line > 0)
+                    {
+                        debugger.AddBreakpoint(breakpoint_file, breakpoint_line);
+                        console.AddLog("Breakpoint added: %s:%d\n", breakpoint_file, breakpoint_line);
+                        
+                        // Sync to editor if it's the current file
+                        auto currentFile = editor.GetCurrentFile();
+                        std::string currentFilename = currentFile.empty() ? "<string>" : currentFile.string();
+                        if (std::string(breakpoint_file) == currentFilename) {
+                            editor.SyncBreakpoints(debugger.GetBreakpoints(currentFilename));
+                        }
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Add to Current File"))
+                {
+                    auto currentFile = editor.GetCurrentFile();
+                    std::string filename;
+                    if (!currentFile.empty())
+                    {
+                        filename = currentFile.string();
+                        debugger.AddBreakpoint(filename, breakpoint_line);
+                        console.AddLog("Breakpoint added: %s:%d\n", filename.c_str(), breakpoint_line);
+                    }
+                    else
+                    {
+                        filename = "<string>";
+                        debugger.AddBreakpoint(filename, breakpoint_line);
+                        console.AddLog("Breakpoint added: <string>:%d\n", breakpoint_line);
+                    }
+                    
+                    // Sync to editor
+                    editor.SyncBreakpoints(debugger.GetBreakpoints(filename));
+                }
+                
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+                
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Text("Active Breakpoints:");
+                ImGui::Spacing();
+                
+                // List all breakpoints
+                bool hasBreakpoints = false;
+                
+                // Get current file's breakpoints
+                auto currentFile = editor.GetCurrentFile();
+                std::string currentFilename = currentFile.empty() ? "<string>" : currentFile.string();
+                
+                const auto& breakpoints = debugger.GetBreakpoints(currentFilename);
+                if (!breakpoints.empty())
+                {
+                    hasBreakpoints = true;
+                    ImGui::Text("In current file (%s):", currentFilename.c_str());
+                    ImGui::Indent();
+                    
+                    // Convert to vector for easier iteration with deletion
+                    std::vector<int> bps_to_remove;
+                    for (int line : breakpoints)
+                    {
+                        ImGui::PushID(line);
+                        if (ImGui::SmallButton("X"))
+                        {
+                            bps_to_remove.push_back(line);
+                        }
+                        ImGui::SameLine();
+                        ImGui::Text("Line %d", line);
+                        ImGui::PopID();
+                    }
+                    
+                    // Remove breakpoints after iteration
+                    for (int line : bps_to_remove)
+                    {
+                        debugger.RemoveBreakpoint(currentFilename, line);
+                        console.AddLog("Breakpoint removed: %s:%d\n", currentFilename.c_str(), line);
+                    }
+                    
+                    // Sync to editor if needed
+                    if (!bps_to_remove.empty()) {
+                        editor.SyncBreakpoints(debugger.GetBreakpoints(currentFilename));
+                    }
+                    
+                    ImGui::Unindent();
+                    ImGui::Spacing();
+                }
+                
+                // Show breakpoints in other files
+                if (strlen(breakpoint_file) > 0 && std::string(breakpoint_file) != currentFilename)
+                {
+                    const auto& other_bps = debugger.GetBreakpoints(breakpoint_file);
+                    if (!other_bps.empty())
+                    {
+                        hasBreakpoints = true;
+                        ImGui::Text("In %s:", breakpoint_file);
+                        ImGui::Indent();
+                        
+                        std::vector<int> bps_to_remove;
+                        for (int line : other_bps)
+                        {
+                            ImGui::PushID((breakpoint_file + std::to_string(line)).c_str());
+                            if (ImGui::SmallButton("X"))
+                            {
+                                bps_to_remove.push_back(line);
+                            }
+                            ImGui::SameLine();
+                            ImGui::Text("Line %d", line);
+                            ImGui::PopID();
+                        }
+                        
+                        for (int line : bps_to_remove)
+                        {
+                            debugger.RemoveBreakpoint(breakpoint_file, line);
+                            console.AddLog("Breakpoint removed: %s:%d\n", breakpoint_file, line);
+                        }
+                        
+                        ImGui::Unindent();
+                    }
+                }
+                
+                if (!hasBreakpoints)
+                {
+                    ImGui::TextDisabled("(no breakpoints set)");
+                }
+                
+                ImGui::Spacing();
+                ImGui::Separator();
+                
+                if (ImGui::Button("Clear All Breakpoints"))
+                {
+                    debugger.ClearBreakpoints();
+                    console.AddLog("All breakpoints cleared.\n");
+                    
+                    // Sync to editor
+                    std::set<int> empty;
+                    editor.SyncBreakpoints(empty);
                 }
             }
             ImGui::End();

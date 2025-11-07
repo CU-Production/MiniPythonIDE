@@ -53,6 +53,7 @@ TextEditor::TextEditor()
 	, mColorRangeMax(0)
 	, mSelectionMode(SelectionMode::Normal)
 	, mCheckComments(true)
+	, mDebugCurrentLine(-1)
 	, mLastClick(-1.0f)
 	, mHandleKeyboardInputs(true)
 	, mHandleMouseInputs(true)
@@ -941,8 +942,41 @@ void TextEditor::Render()
 
 			if (mBreakpoints.count(lineNo + 1) != 0)
 			{
+				// Draw background
 				auto end = ImVec2(lineStartScreenPos.x + contentSize.x + 2.0f * scrollX, lineStartScreenPos.y + mCharAdvance.y);
 				drawList->AddRectFilled(start, end, mPalette[(int)PaletteIndex::Breakpoint]);
+				
+				// Draw red circle marker on the left margin
+				float circleRadius = mCharAdvance.y * 0.35f;
+				ImVec2 circleCenter = ImVec2(
+					lineStartScreenPos.x + mLeftMargin * 0.5f,
+					lineStartScreenPos.y + mCharAdvance.y * 0.5f
+				);
+				drawList->AddCircleFilled(circleCenter, circleRadius, IM_COL32(220, 40, 40, 255), 12);
+				// Add white border to make it stand out
+				drawList->AddCircle(circleCenter, circleRadius, IM_COL32(255, 255, 255, 200), 12, 1.5f);
+			}
+
+			// Draw debug current line (where debugger is paused)
+			if (mDebugCurrentLine == lineNo + 1)
+			{
+				// Draw bright yellow background for current debug line
+				auto end = ImVec2(lineStartScreenPos.x + contentSize.x + 2.0f * scrollX, lineStartScreenPos.y + mCharAdvance.y);
+				drawList->AddRectFilled(start, end, mPalette[(int)PaletteIndex::DebugCurrentLine]);
+				
+				// Draw yellow arrow marker on the left margin
+				float arrowSize = mCharAdvance.y * 0.4f;
+				ImVec2 arrowCenter = ImVec2(
+					lineStartScreenPos.x + mLeftMargin * 0.5f,
+					lineStartScreenPos.y + mCharAdvance.y * 0.5f
+				);
+				// Draw triangle pointing right
+				ImVec2 p1 = ImVec2(arrowCenter.x - arrowSize * 0.5f, arrowCenter.y - arrowSize * 0.5f);
+				ImVec2 p2 = ImVec2(arrowCenter.x - arrowSize * 0.5f, arrowCenter.y + arrowSize * 0.5f);
+				ImVec2 p3 = ImVec2(arrowCenter.x + arrowSize * 0.5f, arrowCenter.y);
+				drawList->AddTriangleFilled(p1, p2, p3, IM_COL32(255, 220, 0, 255));
+				// Add border
+				drawList->AddTriangle(p1, p2, p3, IM_COL32(180, 150, 0, 255), 2.0f);
 			}
 
 			// Draw error markers
@@ -971,6 +1005,17 @@ void TextEditor::Render()
 
 			auto lineNoWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf, nullptr, nullptr).x;
 			drawList->AddText(ImVec2(lineStartScreenPos.x + mTextStart - lineNoWidth, lineStartScreenPos.y), mPalette[(int)PaletteIndex::LineNumber], buf);
+			
+			// Handle double-click on line number to toggle breakpoint
+			ImVec2 lineNoStart = ImVec2(lineStartScreenPos.x + scrollX, lineStartScreenPos.y);
+			ImVec2 lineNoEnd = ImVec2(lineStartScreenPos.x + mTextStart, lineStartScreenPos.y + mCharAdvance.y);
+			if (ImGui::IsMouseHoveringRect(lineNoStart, lineNoEnd))
+			{
+				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+				{
+					ToggleBreakpoint(lineNo + 1);
+				}
+			}
 
 			if (mState.mCursorPosition.mLine == lineNo)
 			{
@@ -2044,6 +2089,7 @@ const TextEditor::Palette & TextEditor::GetDarkPalette()
 			0x40000000, // Current line fill
 			0x40808080, // Current line fill (inactive)
 			0x40a0a0a0, // Current line edge
+			0x80ffff00, // Debug current line (bright yellow with transparency)
 		} };
 	return p;
 }
@@ -2072,6 +2118,7 @@ const TextEditor::Palette & TextEditor::GetLightPalette()
 			0x40000000, // Current line fill
 			0x40808080, // Current line fill (inactive)
 			0x40000000, // Current line edge
+			0x80ffff00, // Debug current line (bright yellow with transparency)
 		} };
 	return p;
 }
@@ -2100,6 +2147,7 @@ const TextEditor::Palette & TextEditor::GetRetroBluePalette()
 			0x40000000, // Current line fill
 			0x40808080, // Current line fill (inactive)
 			0x40000000, // Current line edge
+			0x80ffff00, // Debug current line (bright yellow with transparency)
 		} };
 	return p;
 }
@@ -3253,4 +3301,16 @@ const TextEditor::LanguageDefinition& TextEditor::LanguageDefinition::Python()
 		inited = true;
 	}
 	return langDef;
+}
+
+void TextEditor::ToggleBreakpoint(int aLine)
+{
+	if (mBreakpoints.count(aLine) != 0)
+	{
+		mBreakpoints.erase(aLine);
+	}
+	else
+	{
+		mBreakpoints.insert(aLine);
+	}
 }

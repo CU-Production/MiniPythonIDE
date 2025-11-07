@@ -1,20 +1,17 @@
 #pragma once
 
+#ifdef ENABLE_DEBUGGER
+
 #include "pocketpy.h"
-#include <set>
+#include "pocketpy_debugger_internal.h"
 #include <string>
 #include <vector>
 #include <map>
-
-// Debugger states
-enum class DebugState {
-    Idle,           // Not debugging
-    Running,        // Running without breaks
-    Paused,         // Paused at breakpoint or step
-    StepOver,       // Execute next line in current frame
-    StepInto,       // Step into function call
-    StepOut         // Step out of current frame
-};
+#include <set>
+#include <atomic>
+#include <functional>
+#include <thread>
+#include <mutex>
 
 // Stack frame information
 struct DebugStackFrame {
@@ -35,6 +32,13 @@ public:
     Debugger();
     ~Debugger();
 
+    // Start debugging: executes code with debugging enabled
+    bool Start(const std::string& code, const std::string& filename, 
+               std::function<void(const std::string&)> logCallback);
+    
+    // Stop debugging
+    void Stop();
+
     // Breakpoint management
     void AddBreakpoint(const std::string& filename, int line);
     void RemoveBreakpoint(const std::string& filename, int line);
@@ -43,18 +47,15 @@ public:
     const std::set<int>& GetBreakpoints(const std::string& filename) const;
 
     // Debugging control
-    void Start();
-    void Stop();
     void Continue();
     void StepOver();
     void StepInto();
     void StepOut();
-    void Pause();
 
     // State queries
-    bool IsDebugging() const { return m_state != DebugState::Idle; }
-    bool IsPaused() const { return m_state == DebugState::Paused; }
-    DebugState GetState() const { return m_state; }
+    bool IsDebugging() const { return m_debugging.load(); }
+    bool IsPaused() const { return m_paused.load(); }
+    bool IsRunning() const { return m_debugging.load() && !m_paused.load(); }
     
     // Get current execution location
     const std::string& GetCurrentFile() const { return m_currentFile; }
@@ -63,24 +64,28 @@ public:
     // Get stack frames
     const std::vector<DebugStackFrame>& GetStackFrames() const { return m_stackFrames; }
     
-    // Get local and global variables
+    // Get variables
     const std::vector<DebugVariable>& GetLocalVariables() const { return m_localVariables; }
     const std::vector<DebugVariable>& GetGlobalVariables() const { return m_globalVariables; }
 
-    // Trace function callback (called by PocketPy)
+    // Trace callback (called by PocketPy)
     static void TraceCallback(py_Frame* frame, enum py_TraceEvent event);
 
 private:
-    void UpdateVariables(py_Frame* frame);
-    void UpdateStackFrames(py_Frame* frame);
-    bool ShouldBreak(const std::string& filename, int line, int frameDepth);
-    std::string GetValueString(py_Ref value);
+    void UpdateDebugInfo(py_Frame* frame);
+    void SyncBreakpointsToDebugger();
+    void ExecuteInThread(const std::string& code, const std::string& filename);
 
-    DebugState m_state;
+    std::atomic<bool> m_debugging;
+    std::atomic<bool> m_paused;
+    
+    // Thread synchronization for pause
+    std::mutex m_pauseMutex;
+    std::condition_variable m_pauseCondition;
+    std::thread m_executionThread;
+    
     std::string m_currentFile;
     int m_currentLine;
-    int m_targetFrameDepth;  // For step out
-    int m_currentFrameDepth;
     
     // Breakpoints: filename -> set of line numbers
     std::map<std::string, std::set<int>> m_breakpoints;
@@ -90,7 +95,11 @@ private:
     std::vector<DebugVariable> m_localVariables;
     std::vector<DebugVariable> m_globalVariables;
     
-    // Singleton instance
+    // Logging callback
+    std::function<void(const std::string&)> m_logCallback;
+    
+    // Singleton instance for trace callback
     static Debugger* s_instance;
 };
 
+#endif // ENABLE_DEBUGGER
