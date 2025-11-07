@@ -8,6 +8,7 @@
 
 #include <sstream>
 #include <chrono>
+#include <future>
 
 Debugger* Debugger::s_instance = nullptr;
 
@@ -79,35 +80,32 @@ void Debugger::Stop() {
         m_logCallback("[info] Stopping debugger...\n");
     }
     
+    // Set flag to stop debugging
     m_debugging.store(false);
     
-    // If currently paused, wake up the execution thread
+    // If currently paused, wake up the execution thread so it can exit
     if (m_paused.load()) {
         m_paused.store(false);
         m_pauseCondition.notify_all();
     }
     
-    // Wait for execution thread to finish (with timeout for safety)
+    // Wait for execution thread to finish with timeout
     if (m_executionThread.joinable()) {
-        // Give thread time to exit gracefully
-        auto start = std::chrono::steady_clock::now();
-        while (m_executionThread.joinable()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            
-            // Check if thread finished
-            if (!m_debugging.load() && !m_paused.load()) {
+        // Use a future to implement timed join
+        auto future = std::async(std::launch::async, [this]() {
+            if (m_executionThread.joinable()) {
                 m_executionThread.join();
-                break;
             }
-            
-            // Timeout after 5 seconds (should never happen)
-            auto elapsed = std::chrono::steady_clock::now() - start;
-            if (elapsed > std::chrono::seconds(5)) {
-                if (m_logCallback) {
-                    m_logCallback("[warning] Thread join timeout, detaching...\n");
-                }
+        });
+        
+        // Wait up to 3 seconds for thread to finish
+        if (future.wait_for(std::chrono::seconds(3)) == std::future_status::timeout) {
+            if (m_logCallback) {
+                m_logCallback("[warning] Thread did not exit within 3s, detaching...\n");
+            }
+            // Thread didn't finish in time, detach it to avoid blocking
+            if (m_executionThread.joinable()) {
                 m_executionThread.detach();
-                break;
             }
         }
     }
@@ -116,6 +114,7 @@ void Debugger::Stop() {
         m_logCallback("[info] Debug session ended\n");
     }
     
+    // Clear debug state
     m_currentFile.clear();
     m_currentLine = -1;
     m_stackFrames.clear();

@@ -1115,6 +1115,13 @@ int main(int, char**)
     }
 
     // Cleanup
+#ifdef ENABLE_DEBUGGER
+    // Stop debugger if still running
+    if (debugger.IsDebugging()) {
+        debugger.Stop();
+    }
+#endif
+    
     py_finalize();
 
     SDL_WaitForGPUIdle(gpu_device);
