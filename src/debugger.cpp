@@ -275,6 +275,113 @@ static std::string GetValueRepr(py_Ref value) {
     return "<object>";
 }
 
+// Helper to extract children of a collection variable
+static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& children, int max_items = 100) {
+    py_Type type = py_typeof(value);
+    
+    if (py_islist(value)) {
+        // Extract list items
+        int len = py_list_len(value);
+        int items_to_show = (len < max_items) ? len : max_items;
+        
+        for (int i = 0; i < items_to_show; i++) {
+            py_ItemRef item = py_list_getitem(value, i);
+            if (!item) continue;
+            
+            DebugVariable child;
+            child.name = "[" + std::to_string(i) + "]";
+            child.value = GetValueRepr(item);
+            child.type = GetSimpleTypeName(py_typeof(item));
+            child.has_children = false;
+            children.push_back(child);
+        }
+        
+        if (len > max_items) {
+            DebugVariable more;
+            more.name = "...";
+            more.value = "(" + std::to_string(len - max_items) + " more items)";
+            more.type = "";
+            more.has_children = false;
+            children.push_back(more);
+        }
+    }
+    else if (py_istuple(value)) {
+        // Extract tuple items
+        int len = py_tuple_len(value);
+        int items_to_show = (len < max_items) ? len : max_items;
+        
+        for (int i = 0; i < items_to_show; i++) {
+            py_ItemRef item = py_tuple_getitem(value, i);
+            if (!item) continue;
+            
+            DebugVariable child;
+            child.name = "[" + std::to_string(i) + "]";
+            child.value = GetValueRepr(item);
+            child.type = GetSimpleTypeName(py_typeof(item));
+            child.has_children = false;
+            children.push_back(child);
+        }
+        
+        if (len > max_items) {
+            DebugVariable more;
+            more.name = "...";
+            more.value = "(" + std::to_string(len - max_items) + " more items)";
+            more.type = "";
+            more.has_children = false;
+            children.push_back(more);
+        }
+    }
+    else if (py_isdict(value)) {
+        // Extract dict items
+        struct DictChildContext {
+            std::vector<DebugVariable>* children;
+            int count;
+            int max_items;
+        };
+        
+        DictChildContext ctx;
+        ctx.children = &children;
+        ctx.count = 0;
+        ctx.max_items = max_items;
+        
+        auto collect_dict_items = [](py_Ref key, py_Ref val, void* ctx_ptr) -> bool {
+            DictChildContext* ctx = (DictChildContext*)ctx_ptr;
+            
+            if (ctx->count >= ctx->max_items) {
+                return false; // Stop iteration
+            }
+            
+            DebugVariable child;
+            // Format key
+            if (py_isstr(key)) {
+                child.name = std::string("'") + py_tostr(key) + "'";
+            } else {
+                child.name = GetValueRepr(key);
+            }
+            
+            child.value = GetValueRepr(val);
+            child.type = GetSimpleTypeName(py_typeof(val));
+            child.has_children = false;
+            ctx->children->push_back(child);
+            ctx->count++;
+            
+            return true; // Continue iteration
+        };
+        
+        py_dict_apply(value, collect_dict_items, &ctx);
+        
+        int total_len = py_dict_len(value);
+        if (total_len > max_items) {
+            DebugVariable more;
+            more.name = "...";
+            more.value = "(" + std::to_string(total_len - max_items) + " more items)";
+            more.type = "";
+            more.has_children = false;
+            children.push_back(more);
+        }
+    }
+}
+
 // Helper callback for py_dict_apply to collect variables
 struct CollectVariablesContext {
     std::vector<DebugVariable>* variables;
@@ -304,6 +411,16 @@ static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
     
     // Get variable type using safe method
     var.type = GetSimpleTypeName(py_typeof(val));
+    
+    // Check if variable has children (expandable types)
+    py_Type val_type = py_typeof(val);
+    if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+        var.has_children = true;
+        // Extract children for expandable types
+        ExtractChildVariables(val, var.children);
+    } else {
+        var.has_children = false;
+    }
     
     context->variables->push_back(var);
     return true; // Continue iteration
@@ -366,8 +483,31 @@ void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variable
         var.value = GetValueRepr(value);
         var.type = GetSimpleTypeName(py_typeof(value));
         
+        // Check if variable has children (expandable types)
+        py_Type val_type = py_typeof(value);
+        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+            var.has_children = true;
+            // Extract children for expandable types
+            ExtractChildVariables(value, var.children);
+        } else {
+            var.has_children = false;
+        }
+        
         variables.push_back(var);
     }
+}
+
+std::vector<DebugVariable> Debugger::GetVariableChildren(const std::string& varName, bool isLocal) const {
+    const std::vector<DebugVariable>& vars = isLocal ? m_localVariables : m_globalVariables;
+    
+    for (const auto& var : vars) {
+        if (var.name == varName) {
+            return var.children;
+        }
+    }
+    
+    // Return empty vector if variable not found
+    return std::vector<DebugVariable>();
 }
 
 void Debugger::UpdateDebugInfo(py_Frame* frame) {

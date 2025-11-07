@@ -733,6 +733,54 @@ int main(int, char**)
 
 #ifdef ENABLE_DEBUGGER
 
+        // Helper lambda to render variable tree recursively
+        auto renderVariableTree = [](const DebugVariable& var, int depth = 0) {
+            auto renderVariableTreeImpl = [](const DebugVariable& var, int depth, auto& self_ref) -> void {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                
+                // Check if expandable
+                bool is_expandable = var.has_children && !var.children.empty();
+                
+                ImGui::PushID((var.name + std::to_string(depth)).c_str());
+                if (is_expandable)
+                {
+                    // Show tree node for expandable types
+                    ImGui::AlignTextToFramePadding();
+                    bool node_open = ImGui::TreeNodeEx("##tree", ImGuiTreeNodeFlags_SpanFullWidth);
+                    ImGui::SameLine();
+                    ImGui::Text("%s", var.name.c_str());
+                    
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", var.value.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", var.type.c_str());
+                    
+                    if (node_open)
+                    {
+                        // Show children
+                        for (const auto& child : var.children)
+                        {
+                            self_ref(child, depth + 1, self_ref);
+                        }
+                        ImGui::TreePop();
+                    }
+                }
+                else
+                {
+                    // Simple text for non-expandable types
+                    ImGui::Text("%s", var.name.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", var.value.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", var.type.c_str());
+                }
+                ImGui::PopID();
+            };
+            
+            renderVariableTreeImpl(var, depth, renderVariableTreeImpl);
+        };
+
         // Variables Window
         if (show_variables_window && debugger.IsDebugging())
         {
@@ -755,13 +803,7 @@ int main(int, char**)
                         
                         for (const auto& var : locals)
                         {
-                            ImGui::TableNextRow();
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", var.name.c_str());
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", var.value.c_str());
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", var.type.c_str());
+                            renderVariableTree(var);
                         }
                         ImGui::EndTable();
                     }
@@ -784,13 +826,7 @@ int main(int, char**)
                         
                         for (const auto& var : globals)
                         {
-                            ImGui::TableNextRow();
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", var.name.c_str());
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", var.value.c_str());
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", var.type.c_str());
+                            renderVariableTree(var);
                         }
                         ImGui::EndTable();
                     }

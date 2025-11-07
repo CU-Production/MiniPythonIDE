@@ -25,6 +25,10 @@ struct DebugVariable {
     std::string name;
     std::string value;
     std::string type;
+    std::vector<DebugVariable> children;  // For expandable types (list, dict, tuple, etc.)
+    bool has_children;  // Whether this variable has been expanded
+    
+    DebugVariable() : has_children(false) {}
 };
 
 class Debugger {
@@ -67,6 +71,9 @@ public:
     // Get variables
     const std::vector<DebugVariable>& GetLocalVariables() const { return m_localVariables; }
     const std::vector<DebugVariable>& GetGlobalVariables() const { return m_globalVariables; }
+    
+    // Get children of a variable (for expanding collections)
+    std::vector<DebugVariable> GetVariableChildren(const std::string& varName, bool isLocal) const;
 
     // Trace callback (called by PocketPy)
     static void TraceCallback(py_Frame* frame, enum py_TraceEvent event);
