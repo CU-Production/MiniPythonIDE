@@ -18,7 +18,23 @@ Debugger::Debugger()
 }
 
 Debugger::~Debugger() {
-    Stop();
+    // Force stop debugging if still active
+    if (m_debugging.load()) {
+        m_debugging.store(false);
+        
+        // Wake up paused thread
+        if (m_paused.load()) {
+            m_paused.store(false);
+            m_pauseCondition.notify_all();
+        }
+    }
+    
+    // Ensure thread is joined before destruction
+    if (m_executionThread.joinable()) {
+        m_executionThread.join();
+    }
+    
+    s_instance = nullptr;
 }
 
 bool Debugger::Start(const std::string& code, const std::string& filename,
@@ -53,19 +69,43 @@ void Debugger::Stop() {
         return;
     }
     
+    if (m_logCallback) {
+        m_logCallback("[info] Stopping debugger...\n");
+    }
+    
     m_debugging.store(false);
     
     // If currently paused, wake up the execution thread
     if (m_paused.load()) {
         m_paused.store(false);
-        m_pauseCondition.notify_one();
+        m_pauseCondition.notify_all();
     }
     
-    // Wait for execution thread to finish
+    // Wait for execution thread to finish (with timeout for safety)
     if (m_executionThread.joinable()) {
-        m_executionThread.join();
+        // Give thread time to exit gracefully
+        auto start = std::chrono::steady_clock::now();
+        while (m_executionThread.joinable()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            
+            // Check if thread finished
+            if (!m_debugging.load() && !m_paused.load()) {
+                m_executionThread.join();
+                break;
+            }
+            
+            // Timeout after 5 seconds (should never happen)
+            auto elapsed = std::chrono::steady_clock::now() - start;
+            if (elapsed > std::chrono::seconds(5)) {
+                if (m_logCallback) {
+                    m_logCallback("[warning] Thread join timeout, detaching...\n");
+                }
+                m_executionThread.detach();
+                break;
+            }
+        }
     }
-
+    
     if (m_logCallback) {
         m_logCallback("[info] Debug session ended\n");
     }
@@ -75,7 +115,6 @@ void Debugger::Stop() {
     m_stackFrames.clear();
     m_localVariables.clear();
     m_globalVariables.clear();
-    s_instance = nullptr;
 }
 
 void Debugger::AddBreakpoint(const std::string& filename, int line) {
