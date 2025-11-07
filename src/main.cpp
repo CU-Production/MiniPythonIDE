@@ -847,21 +847,23 @@ int main(int, char**)
                     }
                     else
                     {
-                        ImGui::BeginTable("LocalVars", 3, 
+                        if (ImGui::BeginTable("LocalVars", 3, 
                             ImGuiTableFlags_Borders | 
                             ImGuiTableFlags_RowBg | 
                             ImGuiTableFlags_Resizable |
-                            ImGuiTableFlags_ScrollY);
-                        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-                        ImGui::TableHeadersRow();
-                        
-                        for (const auto& var : locals)
+                            ImGuiTableFlags_ScrollY))
                         {
-                            renderVariableTree(var);
+                            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+                            ImGui::TableHeadersRow();
+                            
+                            for (const auto& var : locals)
+                            {
+                                renderVariableTree(var);
+                            }
+                            ImGui::EndTable();
                         }
-                        ImGui::EndTable();
                     }
                 }
                 
@@ -874,21 +876,23 @@ int main(int, char**)
                     }
                     else
                     {
-                        ImGui::BeginTable("GlobalVars", 3, 
+                        if (ImGui::BeginTable("GlobalVars", 3, 
                             ImGuiTableFlags_Borders | 
                             ImGuiTableFlags_RowBg | 
                             ImGuiTableFlags_Resizable |
-                            ImGuiTableFlags_ScrollY);
-                        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-                        ImGui::TableHeadersRow();
-                        
-                        for (const auto& var : globals)
+                            ImGuiTableFlags_ScrollY))
                         {
-                            renderVariableTree(var);
+                            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+                            ImGui::TableHeadersRow();
+                            
+                            for (const auto& var : globals)
+                            {
+                                renderVariableTree(var);
+                            }
+                            ImGui::EndTable();
                         }
-                        ImGui::EndTable();
                     }
                 }
             }

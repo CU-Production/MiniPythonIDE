@@ -9,6 +9,7 @@
 #include <sstream>
 #include <chrono>
 #include <future>
+#include <utility>
 
 Debugger* Debugger::s_instance = nullptr;
 
@@ -318,8 +319,11 @@ static std::string GetValueRepr(py_Ref value) {
     return "<object>";
 }
 
-// Helper to extract children of a collection variable
-static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& children, int max_items = 100) {
+// Helper to extract children of a collection variable  
+// NOTE: This should only be called when NOT iterating over other collections
+// to avoid stack corruption
+// max_depth: 1 = extract only current level, 2 = extract current + 1 level deep, etc.
+static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& children, int max_items = 100, int max_depth = 1) {
     py_Type type = py_typeof(value);
     
     if (py_islist(value)) {
@@ -342,7 +346,9 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                 if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                     child.has_children = true;
                     // Recursively extract children for nested structures (limited depth)
-                    ExtractChildVariables(item, child.children, 50);
+                    if (max_depth > 1) {
+                        ExtractChildVariables(item, child.children, 50, max_depth - 1);
+                    }
                 } else {
                     // Don't expand nested modules to avoid stack/state issues
                     child.has_children = false;
@@ -378,7 +384,10 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                     py_Type item_type = py_typeof(item);
                     if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                         child.has_children = true;
-                        ExtractChildVariables(item, child.children, 50);
+                        // Don't recurse further to avoid stack issues
+                        if (max_depth > 1) {
+                            ExtractChildVariables(item, child.children, 50, max_depth - 1);
+                        }
                     } else {
                         child.has_children = false;
                     }
@@ -444,7 +453,10 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                     py_Type item_type = py_typeof(item);
                     if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple || IsExpandableObject(item)) {
                         child.has_children = true;
-                        ExtractChildVariables(item, child.children, 50);
+                        // Don't recurse further to avoid stack issues
+                        if (max_depth > 1) {
+                            ExtractChildVariables(item, child.children, 50, max_depth - 1);
+                        }
                     } else {
                         child.has_children = false;
                     }
@@ -488,9 +500,8 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             py_Type val_type = py_typeof(val);
             if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || IsExpandableObject(val)) {
                 child.has_children = true;
-                ExtractChildVariables(val, child.children, 50);
+                // Don't extract children during dict iteration to avoid stack issues
             } else {
-                // Don't expand nested modules to avoid stack/state issues
                 child.has_children = false;
             }
             
@@ -530,7 +541,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
         }
     }
     else if (type == tp_module) {
-        // Extract module attributes using py_getdict for known attributes
+        // Extract module attributes using py_getattr
         // This is safer than using dir() + eval which can modify stack state
         
         // For known modules like 'test', we'll try common attribute names
@@ -543,10 +554,10 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
         for (const char* attr_name : common_attrs) {
             if (found_count >= max_items) break;
             
-            py_Name name = py_name(attr_name);
-            py_Ref attr_value = py_getdict(value, name);
-            
-            if (attr_value) {
+            py_push(value);
+            if (py_getattr(value, py_name(attr_name))) {
+                py_Ref attr_value = py_retval();
+                
                 DebugVariable child;
                 child.name = attr_name;
                 child.value = GetValueRepr(attr_value);
@@ -557,7 +568,10 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                 if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
                     // Only expand collections, not nested modules to avoid issues
                     child.has_children = true;
-                    ExtractChildVariables(attr_value, child.children, 50);
+                    // Don't recurse further to avoid stack issues
+                    if (max_depth > 1) {
+                        ExtractChildVariables(attr_value, child.children, 50, max_depth - 1);
+                    }
                 } else {
                     child.has_children = false;
                 }
@@ -565,59 +579,86 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                 children.push_back(child);
                 found_count++;
             }
+            py_clearexc(NULL);
+            py_pop();
         }
         
         // If no items were found, show a note
         if (children.empty()) {
             DebugVariable note;
             note.name = "(no public attributes found)";
-            note.value = "Use py_getattr to access module attributes";
+            note.value = "Module has no common attributes";
             note.type = "";
             note.has_children = false;
             children.push_back(note);
         }
     }
     else if (IsExpandableObject(value)) {
-        // Extract object attributes using py_applydict with segmented display
-        // First, collect all attributes
+        // Extract object attributes
+        // Use py_getattr to access __dict__ safely without directly calling py_applydict
         std::vector<DebugVariable> all_attrs;
         
-        struct CollectContext {
-            std::vector<DebugVariable>* items;
-        };
-        
-        CollectContext collect_ctx;
-        collect_ctx.items = &all_attrs;
-        
-        auto collect_attrs = [](py_Name name, py_Ref attr_value, void* ctx) -> bool {
-            CollectContext* context = static_cast<CollectContext*>(ctx);
-            
-            // Skip private attributes starting with '_' (for performance)
-            const char* name_str = py_name2str(name);
-            if (name_str && name_str[0] == '_') {
-                return true;  // Continue iteration
+        // Try to get the __dict__ attribute using py_getattr
+        py_push(value);
+        bool has_dict = py_getattr(value, py_name("__dict__"));
+        if (has_dict) {
+            py_Ref dict_obj = py_retval();
+            if (py_isdict(dict_obj)) {
+                // Extract items from the __dict__ dictionary
+                struct DictCollectContext {
+                    std::vector<DebugVariable>* items;
+                };
+                
+                DictCollectContext collect_ctx;
+                collect_ctx.items = &all_attrs;
+                
+                auto collect_dict_items = [](py_Ref key, py_Ref val, void* ctx_ptr) -> bool {
+                    DictCollectContext* ctx = (DictCollectContext*)ctx_ptr;
+                    
+                    // Skip private attributes starting with '_'
+                    if (py_isstr(key)) {
+                        const char* key_str = py_tostr(key);
+                        if (key_str && key_str[0] == '_') {
+                            return true;  // Continue iteration
+                        }
+                        
+                        DebugVariable child;
+                        child.name = key_str;
+                        child.value = GetValueRepr(val);
+                        child.type = GetSimpleTypeName(py_typeof(val));
+                        
+                        // Check if attribute has children
+                        py_Type val_type = py_typeof(val);
+                        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || IsExpandableObject(val)) {
+                            child.has_children = true;
+                            // Lazy load - don't extract children until user expands
+                        } else {
+                            child.has_children = false;
+                        }
+                        
+                        ctx->items->push_back(child);
+                    }
+                    return true;  // Continue iteration
+                };
+                
+                // Use py_dict_apply to iterate over __dict__
+                py_dict_apply(dict_obj, collect_dict_items, &collect_ctx);
             }
-            
-            DebugVariable child;
-            child.name = name_str ? name_str : "(unnamed)";
-            child.value = GetValueRepr(attr_value);
-            child.type = GetSimpleTypeName(py_typeof(attr_value));
-            
-            // Check if attribute has children
-            py_Type val_type = py_typeof(attr_value);
-            if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || IsExpandableObject(attr_value)) {
-                child.has_children = true;
-                // Lazy load - don't extract children until user expands
-            } else {
-                child.has_children = false;
-            }
-            
-            context->items->push_back(child);
-            return true;  // Continue iteration
-        };
+        }
+        // Clear any exception that might have occurred
+        py_clearexc(NULL);
+        py_pop();
         
-        // Collect attributes using py_applydict
-        py_applydict(value, collect_attrs, &collect_ctx);
+        // If no attributes found, show a note
+        if (all_attrs.empty()) {
+            DebugVariable note;
+            note.name = "(no attributes)";
+            note.value = "Object has no accessible attributes";
+            note.type = "";
+            note.has_children = false;
+            children.push_back(note);
+            return;
+        }
         
         // Sort attributes by name for better readability
         std::sort(all_attrs.begin(), all_attrs.end(), 
@@ -633,11 +674,14 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             for (auto& attr : all_attrs) {
                 // Extract children if they exist (lazy load)
                 if (attr.has_children) {
-                    py_Name name = py_name(attr.name.c_str());
-                    py_Ref attr_value = py_getdict(value, name);
-                    if (attr_value) {
-                        ExtractChildVariables(attr_value, attr.children, 50);
+                    // Use py_getattr instead of py_getdict to be safe
+                    py_push(value);
+                    if (py_getattr(value, py_name(attr.name.c_str()))) {
+                        py_Ref attr_value = py_retval();
+                        ExtractChildVariables(attr_value, attr.children, 50, 0);
                     }
+                    py_clearexc(NULL);
+                    py_pop();
                 }
                 children.push_back(attr);
             }
@@ -660,27 +704,20 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                     auto& attr = all_attrs[i];
                     // Extract children if they exist (lazy load)
                     if (attr.has_children) {
-                        py_Name name = py_name(attr.name.c_str());
-                        py_Ref attr_value = py_getdict(value, name);
-                        if (attr_value) {
-                            ExtractChildVariables(attr_value, attr.children, 50);
+                        // Use py_getattr instead of py_getdict to be safe
+                        py_push(value);
+                        if (py_getattr(value, py_name(attr.name.c_str()))) {
+                            py_Ref attr_value = py_retval();
+                            ExtractChildVariables(attr_value, attr.children, 50, 0);
                         }
+                        py_clearexc(NULL);
+                        py_pop();
                     }
                     segment.children.push_back(attr);
                 }
                 
                 children.push_back(segment);
             }
-        }
-        
-        // If no attributes were found, show a note
-        if (all_attrs.empty()) {
-            DebugVariable note;
-            note.name = "(no attributes)";
-            note.value = "Object has no public attributes";
-            note.type = "";
-            note.has_children = false;
-            children.push_back(note);
         }
     }
 }
@@ -720,8 +757,8 @@ static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
     if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || 
         val_type == tp_module || IsExpandableObject(val)) {
         var.has_children = true;
-        // Extract children for expandable types
-        ExtractChildVariables(val, var.children);
+        // Don't extract children during iteration to avoid stack corruption
+        // Children will be lazy-loaded when user expands the variable in UI
     } else {
         var.has_children = false;
     }
@@ -754,12 +791,27 @@ void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variable
         return;
     }
     
+    // IMPORTANT: Keep items_list on the stack to prevent GC
     py_Ref items_list = py_retval();
-    py_pop(); // Remove temp_obj
     
     if (!py_islist(items_list)) {
+        py_pop(); // Remove temp_obj
         return;
     }
+    
+    // Push items_list to stack to keep it alive during processing
+    py_push(items_list);
+    
+    // First pass: collect variable info without nested extraction
+    // This prevents stack corruption during iteration
+    struct VarInfo {
+        std::string name;
+        std::string value_repr;
+        std::string type_name;
+        py_Type type;
+        bool is_expandable;
+    };
+    std::vector<VarInfo> temp_vars;
     
     int len = py_list_len(items_list);
     for (int i = 0; i < len; i++) {
@@ -775,28 +827,40 @@ void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variable
             continue;
         }
         
-        DebugVariable var;
-        var.name = py_tostr(key);
+        std::string var_name = py_tostr(key);
         
         // Skip built-in variables if filtering
-        if (filter_builtins && !var.name.empty() && var.name[0] == '_') {
+        if (filter_builtins && !var_name.empty() && var_name[0] == '_') {
             continue;
         }
         
-        // Get variable value and type using safe methods
-        var.value = GetValueRepr(value);
-        var.type = GetSimpleTypeName(py_typeof(value));
+        // Extract basic info without calling nested functions
+        VarInfo info;
+        info.name = var_name;
+        info.value_repr = GetValueRepr(value);
+        info.type = py_typeof(value);
+        info.type_name = GetSimpleTypeName(info.type);
+        info.is_expandable = (info.type == tp_list || info.type == tp_dict || 
+                              info.type == tp_tuple || info.type == tp_module || 
+                              IsExpandableObject(value));
         
-        // Check if variable has children (expandable types)
-        py_Type val_type = py_typeof(value);
-        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || 
-            val_type == tp_module || IsExpandableObject(value)) {
-            var.has_children = true;
-            // Extract children for expandable types
-            ExtractChildVariables(value, var.children);
-        } else {
-            var.has_children = false;
-        }
+        temp_vars.push_back(info);
+    }
+    
+    // Now safe to pop both items_list and temp_obj
+    py_pop(); // items_list
+    py_pop(); // temp_obj
+    
+    // Second pass: create DebugVariable objects
+    // Note: We can't extract children here because the original objects are gone
+    // Children will be extracted on-demand when the user expands the variable
+    for (const auto& info : temp_vars) {
+        DebugVariable var;
+        var.name = info.name;
+        var.value = info.value_repr;
+        var.type = info.type_name;
+        var.has_children = info.is_expandable;
+        // Don't extract children here - they'll be extracted when needed
         
         variables.push_back(var);
     }
@@ -829,11 +893,17 @@ void Debugger::UpdateDebugInfo(py_Frame* frame) {
     
     // Get local variables from current frame
     py_Frame_newlocals(frame, py_r0());
-    ExtractVariables(py_r0(), m_localVariables, false);
+    py_Ref locals_obj = py_r0();
+    if (locals_obj) {
+        ExtractVariables(locals_obj, m_localVariables, false);
+    }
     
     // Get global variables from current frame  
     py_Frame_newglobals(frame, py_r1());
-    ExtractVariables(py_r1(), m_globalVariables, true);
+    py_Ref globals_obj = py_r1();
+    if (globals_obj) {
+        ExtractVariables(globals_obj, m_globalVariables, true);
+    }
 }
 
 void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
