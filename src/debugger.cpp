@@ -203,6 +203,185 @@ void Debugger::SyncBreakpointsToDebugger() {
     }
 }
 
+// Helper callback for py_dict_apply to collect variables
+struct CollectVariablesContext {
+    std::vector<DebugVariable>* variables;
+    bool filter_builtins;
+};
+
+static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
+    CollectVariablesContext* context = (CollectVariablesContext*)ctx;
+    
+    DebugVariable var;
+    
+    // Get variable name
+    const char* key_str = py_tostr(key);
+    if (key_str) {
+        var.name = key_str;
+    }
+    
+    // Skip built-in functions and modules if filtering is enabled
+    if (context->filter_builtins && (!var.name.empty() && var.name[0] == '_')) {
+        return true; // Continue iteration
+    }
+    
+    // Get variable value
+    const char* value_str = py_tostr(val);
+    if (value_str) {
+        var.value = value_str;
+    }
+    
+    // Get variable type
+    py_Type type = py_typeof(val);
+    
+    // Get type name by calling type.__name__ on the type object
+    py_tpobject(type);
+    py_ItemRef name_attr = py_getdict(py_r0(), py_name("__name__"));
+    if (name_attr) {
+        const char* type_name = py_tostr(name_attr);
+        if (type_name) {
+            var.type = type_name;
+        }
+    }
+    
+    if (var.type.empty()) {
+        // Fallback: use type id
+        std::ostringstream oss;
+        oss << "type_" << type;
+        var.type = oss.str();
+    }
+    
+    context->variables->push_back(var);
+    return true; // Continue iteration
+}
+
+// Helper to safely get type name
+static std::string GetSimpleTypeName(py_Type type) {
+    // Map common types to readable names
+    switch(type) {
+        case tp_int: return "int";
+        case tp_float: return "float";
+        case tp_bool: return "bool";
+        case tp_str: return "str";
+        case tp_list: return "list";
+        case tp_tuple: return "tuple";
+        case tp_dict: return "dict";
+        case tp_function: return "function";
+        case tp_type: return "type";
+        case tp_module: return "module";
+        case tp_range: return "range";
+        case tp_slice: return "slice";
+        case tp_bytes: return "bytes";
+        default: {
+            std::ostringstream oss;
+            oss << "type_" << type;
+            return oss.str();
+        }
+    }
+}
+
+// Helper to safely convert value to string representation
+static std::string GetValueRepr(py_Ref value) {
+    py_Type type = py_typeof(value);
+    
+    // Handle basic types directly
+    if (py_isint(value)) {
+        py_i64 val;
+        if (py_castint(value, &val)) {
+            return std::to_string(val);
+        }
+    } else if (py_isfloat(value)) {
+        py_f64 val;
+        if (py_castfloat(value, &val)) {
+            return std::to_string(val);
+        }
+    } else if (py_isbool(value)) {
+        return py_tobool(value) ? "True" : "False";
+    } else if (py_isstr(value)) {
+        return std::string("'") + py_tostr(value) + "'";
+    } else if (py_isnil(value)) {
+        return "None";
+    } else if (type == tp_function) {
+        return "<function>";
+    } else if (type == tp_type) {
+        return "<type>";
+    } else if (type == tp_module) {
+        return "<module>";
+    } else if (py_islist(value)) {
+        int len = py_list_len(value);
+        return std::string("[...] (") + std::to_string(len) + " items)";
+    } else if (py_istuple(value)) {
+        int len = py_tuple_len(value);
+        return std::string("(...) (") + std::to_string(len) + " items)";
+    } else if (py_isdict(value)) {
+        int len = py_dict_len(value);
+        return std::string("{...} (") + std::to_string(len) + " items)";
+    }
+    
+    return "<object>";
+}
+
+// Helper to extract variables from a Python object (dict/namedict)
+void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variables, bool filter_builtins) {
+    // For dict, use py_dict_apply directly
+    if (py_isdict(obj)) {
+        CollectVariablesContext ctx;
+        ctx.variables = &variables;
+        ctx.filter_builtins = filter_builtins;
+        py_dict_apply(obj, CollectVariablesCallback, &ctx);
+        return;
+    }
+    
+    // For namedict or other types, use py_smarteval to convert to list
+    // Save current value to a temporary register
+    py_push(obj);
+    py_Ref temp_obj = py_peek(-1);
+    
+    const char* eval_code = "[(k,v) for k,v in _0.items()]";
+    if (!py_smarteval(eval_code, NULL, temp_obj)) {
+        // If items() fails, clear exception and return
+        py_clearexc(NULL);
+        py_pop(); // Remove temp_obj
+        return;
+    }
+    
+    py_Ref items_list = py_retval();
+    py_pop(); // Remove temp_obj
+    
+    if (!py_islist(items_list)) {
+        return;
+    }
+    
+    int len = py_list_len(items_list);
+    for (int i = 0; i < len; i++) {
+        py_ItemRef tuple = py_list_getitem(items_list, i);
+        if (!tuple || !py_istuple(tuple)) {
+            continue;
+        }
+        
+        py_ItemRef key = py_tuple_getitem(tuple, 0);
+        py_ItemRef value = py_tuple_getitem(tuple, 1);
+        
+        if (!key || !value || !py_isstr(key)) {
+            continue;
+        }
+        
+        DebugVariable var;
+        var.name = py_tostr(key);
+        
+        // Skip built-in variables if filtering
+        if (filter_builtins && !var.name.empty() && var.name[0] == '_') {
+            continue;
+        }
+        
+        // Get variable value and type using safe methods
+        var.value = GetValueRepr(value);
+        var.type = GetSimpleTypeName(py_typeof(value));
+        
+        variables.push_back(var);
+    }
+}
+
 void Debugger::UpdateDebugInfo(py_Frame* frame) {
     // Get current location
     const char* filename = py_Frame_sourceloc(frame, &m_currentLine);
@@ -210,13 +389,30 @@ void Debugger::UpdateDebugInfo(py_Frame* frame) {
         m_currentFile = filename;
     }
     
-    // TODO: Parse c11_debugger_frames() and c11_debugger_scopes() output
-    // to populate m_stackFrames, m_localVariables, m_globalVariables
-    // For now, we just have basic file/line info
+    // Clear previous data
+    m_stackFrames.clear();
+    m_localVariables.clear();
+    m_globalVariables.clear();
+    
+    // Get local variables from current frame
+    py_Frame_newlocals(frame, py_r0());
+    ExtractVariables(py_r0(), m_localVariables, false);
+    
+    // Get global variables from current frame  
+    py_Frame_newglobals(frame, py_r1());
+    ExtractVariables(py_r1(), m_globalVariables, true);
 }
 
 void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
     if (!s_instance || !s_instance->m_debugging.load()) {
+        return;
+    }
+    
+    // Only process LINE events for stepping
+    // PUSH and POP events are for function calls but we handle those in c11_debugger_on_trace
+    if (event != TRACE_EVENT_LINE) {
+        // Still call internal debugger to update its state
+        c11_debugger_on_trace(frame, event);
         return;
     }
     

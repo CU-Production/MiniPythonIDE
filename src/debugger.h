@@ -73,6 +73,7 @@ public:
 
 private:
     void UpdateDebugInfo(py_Frame* frame);
+    void ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variables, bool filter_builtins);
     void SyncBreakpointsToDebugger();
     void ExecuteInThread(const std::string& code, const std::string& filename);
 
