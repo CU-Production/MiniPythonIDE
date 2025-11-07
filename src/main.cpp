@@ -309,17 +309,15 @@ int main(int, char**)
     });
 #endif
 
-    // Init pocket.py
-    py_initialize();
-    
-    // Setup stdout/stderr callbacks
-    py_callbacks()->print = [](const char* s) {
-        console.AddLog("%s", s);
-        std::cout << s;
-    };
-    
-    // Create test module
-    {
+    // Helper function to setup Python VM environment
+    auto setupPythonVM = []() {
+        // Setup stdout/stderr callbacks
+        py_callbacks()->print = [](const char* s) {
+            console.AddLog("%s", s);
+            std::cout << s;
+        };
+        
+        // Create test module
         py_GlobalRef mod = py_newmodule("test");
         
         // Set pi attribute
@@ -337,7 +335,13 @@ int main(int, char**)
             py_newint(py_retval(), a + b);
             return true;
         });
-    }
+    };
+    
+    // Init pocket.py
+    py_initialize();
+    
+    // Initial setup for VM 0
+    setupPythonVM();
 
 
     // Main loop
@@ -477,6 +481,11 @@ int main(int, char**)
 #endif
                 if (ImGui::MenuItem("Run Script", "F5", false, canRun))
                 {
+                    // Reset VM 0 to have a clean state for each run
+                    console.AddLog("[info] Resetting Python VM...\n");
+                    py_resetvm();
+                    setupPythonVM();
+                    
                     std::string code = editor.GetText();
                     auto currentFile = editor.GetCurrentFile();
                     std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
@@ -590,6 +599,11 @@ int main(int, char**)
             }
             else if (!debugger.IsDebugging())
             {
+                // Reset VM 0 to have a clean state for each run
+                console.AddLog("[info] Resetting Python VM...\n");
+                py_resetvm();
+                setupPythonVM();
+                
                 std::string code = editor.GetText();
                 auto currentFile = editor.GetCurrentFile();
                 std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
@@ -632,6 +646,11 @@ int main(int, char**)
         // F5 - Run Script (when debugger not enabled)
         if (ImGui::IsKeyPressed(ImGuiKey_F5))
         {
+            // Reset VM 0 to have a clean state for each run
+            console.AddLog("[info] Resetting Python VM...\n");
+            py_resetvm();
+            setupPythonVM();
+            
             std::string code = editor.GetText();
             auto currentFile = editor.GetCurrentFile();
             std::string filename = currentFile.empty() ? "<string>" : currentFile.string();

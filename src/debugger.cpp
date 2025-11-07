@@ -53,6 +53,13 @@ bool Debugger::Start(const std::string& code, const std::string& filename,
         m_executionThread.join();
     }
 
+    // Clear previous debug state before starting new session
+    m_currentFile.clear();
+    m_currentLine = -1;
+    m_stackFrames.clear();
+    m_localVariables.clear();
+    m_globalVariables.clear();
+
     m_logCallback = logCallback;
     m_debugging.store(true);
     m_paused.store(false);
@@ -300,6 +307,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                     // Recursively extract children for nested structures (limited depth)
                     ExtractChildVariables(item, child.children, 50);
                 } else {
+                    // Don't expand nested modules to avoid stack/state issues
                     child.has_children = false;
                 }
                 
@@ -445,6 +453,7 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
                 child.has_children = true;
                 ExtractChildVariables(val, child.children, 50);
             } else {
+                // Don't expand nested modules to avoid stack/state issues
                 child.has_children = false;
             }
             
@@ -484,66 +493,48 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
         }
     }
     else if (type == tp_module) {
-        // Extract module attributes using dir() + getattr
-        // Save the module to stack for evaluation
-        py_push(value);
+        // Extract module attributes using py_getdict for known attributes
+        // This is safer than using dir() + eval which can modify stack state
         
-        // Call dir() to get list of attribute names
-        const char* eval_code = "dir(_0)";
-        if (py_smarteval(eval_code, NULL, value)) {
-            py_Ref attr_list = py_retval();
+        // For known modules like 'test', we'll try common attribute names
+        const char* common_attrs[] = {
+            "pi", "add", "e", "sqrt", "sin", "cos", 
+            "Path", "name", "version", "main"
+        };
+        
+        int found_count = 0;
+        for (const char* attr_name : common_attrs) {
+            if (found_count >= max_items) break;
             
-            if (py_islist(attr_list)) {
-                int attr_count = py_list_len(attr_list);
-                int shown_count = 0;
+            py_Name name = py_name(attr_name);
+            py_Ref attr_value = py_getdict(value, name);
+            
+            if (attr_value) {
+                DebugVariable child;
+                child.name = attr_name;
+                child.value = GetValueRepr(attr_value);
+                child.type = GetSimpleTypeName(py_typeof(attr_value));
                 
-                for (int i = 0; i < attr_count && shown_count < max_items; i++) {
-                    py_ItemRef attr_name_obj = py_list_getitem(attr_list, i);
-                    if (!attr_name_obj || !py_isstr(attr_name_obj)) continue;
-                    
-                    std::string attr_name = py_tostr(attr_name_obj);
-                    
-                    // Skip private/internal attributes
-                    if (!attr_name.empty() && attr_name[0] == '_') {
-                        continue;
-                    }
-                    
-                    // Get attribute value using py_getdict (safer than py_getattr in this context)
-                    py_Name name = py_name(attr_name.c_str());
-                    py_Ref attr_value = py_getdict(value, name);
-                    
-                    if (attr_value) {
-                        DebugVariable child;
-                        child.name = attr_name;
-                        child.value = GetValueRepr(attr_value);
-                        child.type = GetSimpleTypeName(py_typeof(attr_value));
-                        
-                        // Check if attribute has children
-                        py_Type val_type = py_typeof(attr_value);
-                        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
-                            child.has_children = true;
-                            ExtractChildVariables(attr_value, child.children, 50);
-                        } else {
-                            child.has_children = false;
-                        }
-                        
-                        children.push_back(child);
-                        shown_count++;
-                    }
+                // Check if attribute has children (but limit recursion depth for modules)
+                py_Type val_type = py_typeof(attr_value);
+                if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+                    // Only expand collections, not nested modules to avoid issues
+                    child.has_children = true;
+                    ExtractChildVariables(attr_value, child.children, 50);
+                } else {
+                    child.has_children = false;
                 }
+                
+                children.push_back(child);
+                found_count++;
             }
-        } else {
-            // If dir() fails, clear exception
-            py_clearexc(NULL);
         }
         
-        py_pop(); // Remove pushed module
-        
-        // If no items were collected, show a note
+        // If no items were found, show a note
         if (children.empty()) {
             DebugVariable note;
             note.name = "(no public attributes found)";
-            note.value = "";
+            note.value = "Use py_getattr to access module attributes";
             note.type = "";
             note.has_children = false;
             children.push_back(note);
@@ -738,10 +729,29 @@ void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
     
     // Only pause if:
     // 1. Debugger says we should pause, AND
-    // 2. We've moved to a different line (or it's a breakpoint/exception)
-    if (reason != C11_DEBUGGER_NOSTOP && 
-        (line_changed || reason == C11_DEBUGGER_BP || reason == C11_DEBUGGER_EXCEPTION)) {
-        
+    // 2. We've moved to a different line OR it's an exception
+    // NOTE: For breakpoints, we ONLY pause if line_changed is true
+    // This prevents re-triggering the same breakpoint after Continue
+    bool should_pause = false;
+    if (reason != C11_DEBUGGER_NOSTOP) {
+        if (reason == C11_DEBUGGER_EXCEPTION) {
+            // Always pause on exceptions
+            should_pause = true;
+        } else if (line_changed) {
+            // Pause on step or breakpoint only if we've moved to a different line
+            should_pause = true;
+        } else if (reason == C11_DEBUGGER_BP) {
+            // Breakpoint on same line - clear keep_suspend to prevent re-triggering
+            // This happens when pressing F5 (Continue) after hitting a breakpoint
+            // We need to clear the suspend flag without changing the step mode
+            // (c11_debugger_should_pause sets it to true, but we want to ignore this pause)
+            c11_debugger_set_step_mode(C11_STEP_CONTINUE);
+        }
+        // For C11_DEBUGGER_STEP on same line: do nothing, keep current step mode
+        // This allows F10/F11 to work correctly - they'll pause on the next line
+    }
+    
+    if (should_pause) {
         // Update last paused location
         last_paused_line = current_line;
         if (current_file) {
@@ -793,6 +803,12 @@ void Debugger::ExecuteInThread(const std::string& code, const std::string& filen
     // Switch to VM 1 (main thread uses VM 0)
     py_switchvm(1);
     
+    // Reset VM 1 to have a clean state for each debug session
+    if (m_logCallback) {
+        m_logCallback("[info] Resetting Python VM 1 for debugging...\n");
+    }
+    py_resetvm();
+    
     // Setup callbacks for VM 1 (redirect to our log callback)
     // Store callback in static variable so we can use a non-capturing lambda
     s_vm1_logCallback = m_logCallback;
@@ -802,29 +818,24 @@ void Debugger::ExecuteInThread(const std::string& code, const std::string& filen
         }
     };
     
-    // Create test module for VM 1 if it doesn't exist
-    // Try to get existing module first
-    py_GlobalRef mod = py_getmodule("test");
-    if (!mod) {
-        // Module doesn't exist in VM 1, create it
-        mod = py_newmodule("test");
+    // Create test module for VM 1
+    py_GlobalRef mod = py_newmodule("test");
+    
+    // Set pi attribute
+    py_newfloat(py_r0(), 3.14);
+    py_setdict(mod, py_name("pi"), py_r0());
+    
+    // Bind add function
+    py_bindfunc(mod, "add", [](int argc, py_StackRef argv) -> bool {
+        if (argc != 2) return TypeError("add() requires 2 arguments");
         
-        // Set pi attribute
-        py_newfloat(py_r0(), 3.14);
-        py_setdict(mod, py_name("pi"), py_r0());
+        py_i64 a = py_toint(py_offset(argv, 0));
+        py_i64 b = py_toint(py_offset(argv, 1));
         
-        // Bind add function
-        py_bindfunc(mod, "add", [](int argc, py_StackRef argv) -> bool {
-            if (argc != 2) return TypeError("add() requires 2 arguments");
-            
-            py_i64 a = py_toint(py_offset(argv, 0));
-            py_i64 b = py_toint(py_offset(argv, 1));
-            
-            // Create return value using retval
-            py_newint(py_retval(), a + b);
-            return true;
-        });
-    }
+        // Create return value using retval
+        py_newint(py_retval(), a + b);
+        return true;
+    });
     
     // Initialize debugger (must be done AFTER py_switchvm)
     c11_debugger_init();
