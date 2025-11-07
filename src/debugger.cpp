@@ -280,96 +280,154 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
     py_Type type = py_typeof(value);
     
     if (py_islist(value)) {
-        // Extract list items
+        // Extract list items with segmented display
         int len = py_list_len(value);
-        int items_to_show = (len < max_items) ? len : max_items;
         
-        for (int i = 0; i < items_to_show; i++) {
-            py_ItemRef item = py_list_getitem(value, i);
-            if (!item) continue;
-            
-            DebugVariable child;
-            child.name = "[" + std::to_string(i) + "]";
-            child.value = GetValueRepr(item);
-            child.type = GetSimpleTypeName(py_typeof(item));
-            
-            // Check if child also has children (nested structures)
-            py_Type item_type = py_typeof(item);
-            if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
-                child.has_children = true;
-                // Recursively extract children for nested structures (limited depth)
-                ExtractChildVariables(item, child.children, 50); // Reduced limit for nested items
-            } else {
-                child.has_children = false;
+        if (len <= max_items) {
+            // Small list - extract all items directly
+            for (int i = 0; i < len; i++) {
+                py_ItemRef item = py_list_getitem(value, i);
+                if (!item) continue;
+                
+                DebugVariable child;
+                child.name = "[" + std::to_string(i) + "]";
+                child.value = GetValueRepr(item);
+                child.type = GetSimpleTypeName(py_typeof(item));
+                
+                // Check if child also has children (nested structures)
+                py_Type item_type = py_typeof(item);
+                if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                    child.has_children = true;
+                    // Recursively extract children for nested structures (limited depth)
+                    ExtractChildVariables(item, child.children, 50);
+                } else {
+                    child.has_children = false;
+                }
+                
+                children.push_back(child);
             }
+        } else {
+            // Large list - create segments
+            int num_segments = (len + max_items - 1) / max_items;
             
-            children.push_back(child);
-        }
-        
-        if (len > max_items) {
-            DebugVariable more;
-            more.name = "...";
-            more.value = "(" + std::to_string(len - max_items) + " more items)";
-            more.type = "";
-            more.has_children = false;
-            children.push_back(more);
+            for (int seg = 0; seg < num_segments; seg++) {
+                int start = seg * max_items;
+                int end = std::min(start + max_items - 1, len - 1);
+                
+                DebugVariable segment;
+                segment.name = "[" + std::to_string(start) + "-" + std::to_string(end) + "]";
+                segment.value = "(" + std::to_string(end - start + 1) + " items)";
+                segment.type = "segment";
+                segment.has_children = true;
+                
+                // Extract items in this segment
+                for (int i = start; i <= end; i++) {
+                    py_ItemRef item = py_list_getitem(value, i);
+                    if (!item) continue;
+                    
+                    DebugVariable child;
+                    child.name = "[" + std::to_string(i) + "]";
+                    child.value = GetValueRepr(item);
+                    child.type = GetSimpleTypeName(py_typeof(item));
+                    
+                    // Check if child also has children (nested structures)
+                    py_Type item_type = py_typeof(item);
+                    if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                        child.has_children = true;
+                        ExtractChildVariables(item, child.children, 50);
+                    } else {
+                        child.has_children = false;
+                    }
+                    
+                    segment.children.push_back(child);
+                }
+                
+                children.push_back(segment);
+            }
         }
     }
     else if (py_istuple(value)) {
-        // Extract tuple items
+        // Extract tuple items with segmented display
         int len = py_tuple_len(value);
-        int items_to_show = (len < max_items) ? len : max_items;
         
-        for (int i = 0; i < items_to_show; i++) {
-            py_ItemRef item = py_tuple_getitem(value, i);
-            if (!item) continue;
-            
-            DebugVariable child;
-            child.name = "[" + std::to_string(i) + "]";
-            child.value = GetValueRepr(item);
-            child.type = GetSimpleTypeName(py_typeof(item));
-            
-            // Check if child also has children (nested structures)
-            py_Type item_type = py_typeof(item);
-            if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
-                child.has_children = true;
-                // Recursively extract children for nested structures (limited depth)
-                ExtractChildVariables(item, child.children, 50); // Reduced limit for nested items
-            } else {
-                child.has_children = false;
+        if (len <= max_items) {
+            // Small tuple - extract all items directly
+            for (int i = 0; i < len; i++) {
+                py_ItemRef item = py_tuple_getitem(value, i);
+                if (!item) continue;
+                
+                DebugVariable child;
+                child.name = "[" + std::to_string(i) + "]";
+                child.value = GetValueRepr(item);
+                child.type = GetSimpleTypeName(py_typeof(item));
+                
+                // Check if child also has children (nested structures)
+                py_Type item_type = py_typeof(item);
+                if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                    child.has_children = true;
+                    ExtractChildVariables(item, child.children, 50);
+                } else {
+                    child.has_children = false;
+                }
+                
+                children.push_back(child);
             }
+        } else {
+            // Large tuple - create segments
+            int num_segments = (len + max_items - 1) / max_items;
             
-            children.push_back(child);
-        }
-        
-        if (len > max_items) {
-            DebugVariable more;
-            more.name = "...";
-            more.value = "(" + std::to_string(len - max_items) + " more items)";
-            more.type = "";
-            more.has_children = false;
-            children.push_back(more);
+            for (int seg = 0; seg < num_segments; seg++) {
+                int start = seg * max_items;
+                int end = std::min(start + max_items - 1, len - 1);
+                
+                DebugVariable segment;
+                segment.name = "[" + std::to_string(start) + "-" + std::to_string(end) + "]";
+                segment.value = "(" + std::to_string(end - start + 1) + " items)";
+                segment.type = "segment";
+                segment.has_children = true;
+                
+                // Extract items in this segment
+                for (int i = start; i <= end; i++) {
+                    py_ItemRef item = py_tuple_getitem(value, i);
+                    if (!item) continue;
+                    
+                    DebugVariable child;
+                    child.name = "[" + std::to_string(i) + "]";
+                    child.value = GetValueRepr(item);
+                    child.type = GetSimpleTypeName(py_typeof(item));
+                    
+                    // Check if child also has children (nested structures)
+                    py_Type item_type = py_typeof(item);
+                    if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                        child.has_children = true;
+                        ExtractChildVariables(item, child.children, 50);
+                    } else {
+                        child.has_children = false;
+                    }
+                    
+                    segment.children.push_back(child);
+                }
+                
+                children.push_back(segment);
+            }
         }
     }
     else if (py_isdict(value)) {
-        // Extract dict items
-        struct DictChildContext {
-            std::vector<DebugVariable>* children;
-            int count;
-            int max_items;
+        // Extract dict items with segmented display
+        int total_len = py_dict_len(value);
+        
+        // First, collect all dict items into a temporary vector
+        std::vector<DebugVariable> all_items;
+        
+        struct DictCollectContext {
+            std::vector<DebugVariable>* items;
         };
         
-        DictChildContext ctx;
-        ctx.children = &children;
-        ctx.count = 0;
-        ctx.max_items = max_items;
+        DictCollectContext collect_ctx;
+        collect_ctx.items = &all_items;
         
-        auto collect_dict_items = [](py_Ref key, py_Ref val, void* ctx_ptr) -> bool {
-            DictChildContext* ctx = (DictChildContext*)ctx_ptr;
-            
-            if (ctx->count >= ctx->max_items) {
-                return false; // Stop iteration
-            }
+        auto collect_all_items = [](py_Ref key, py_Ref val, void* ctx_ptr) -> bool {
+            DictCollectContext* ctx = (DictCollectContext*)ctx_ptr;
             
             DebugVariable child;
             // Format key
@@ -386,28 +444,44 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             py_Type val_type = py_typeof(val);
             if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
                 child.has_children = true;
-                // Recursively extract children for nested structures (limited depth)
-                ExtractChildVariables(val, child.children, 50); // Reduced limit for nested items
+                ExtractChildVariables(val, child.children, 50);
             } else {
                 child.has_children = false;
             }
             
-            ctx->children->push_back(child);
-            ctx->count++;
-            
+            ctx->items->push_back(child);
             return true; // Continue iteration
         };
         
-        py_dict_apply(value, collect_dict_items, &ctx);
+        py_dict_apply(value, collect_all_items, &collect_ctx);
         
-        int total_len = py_dict_len(value);
-        if (total_len > max_items) {
-            DebugVariable more;
-            more.name = "...";
-            more.value = "(" + std::to_string(total_len - max_items) + " more items)";
-            more.type = "";
-            more.has_children = false;
-            children.push_back(more);
+        // Now organize into segments if needed
+        if (total_len <= max_items) {
+            // Small dict - add all items directly
+            for (const auto& item : all_items) {
+                children.push_back(item);
+            }
+        } else {
+            // Large dict - create segments
+            int num_segments = (total_len + max_items - 1) / max_items;
+            
+            for (int seg = 0; seg < num_segments; seg++) {
+                int start = seg * max_items;
+                int end = std::min(start + max_items - 1, total_len - 1);
+                
+                DebugVariable segment;
+                segment.name = "[" + std::to_string(start) + "-" + std::to_string(end) + "]";
+                segment.value = "(" + std::to_string(end - start + 1) + " items)";
+                segment.type = "segment";
+                segment.has_children = true;
+                
+                // Add items in this segment
+                for (int i = start; i <= end && i < (int)all_items.size(); i++) {
+                    segment.children.push_back(all_items[i]);
+                }
+                
+                children.push_back(segment);
+            }
         }
     }
     // Note: Module expansion is currently disabled for safety
