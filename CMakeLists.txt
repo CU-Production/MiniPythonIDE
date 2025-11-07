@@ -71,4 +71,6 @@ add_custom_command(
         TARGET MiniPythonIDE POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
         ARGS ${CMAKE_CURRENT_SOURCE_DIR}/test.py ${CMAKE_CURRENT_BINARY_DIR}/test.py
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ARGS ${CMAKE_CURRENT_SOURCE_DIR}/test_debug_variables.py ${CMAKE_CURRENT_BINARY_DIR}/test_debug_variables.py
 )

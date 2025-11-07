@@ -292,7 +292,17 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             child.name = "[" + std::to_string(i) + "]";
             child.value = GetValueRepr(item);
             child.type = GetSimpleTypeName(py_typeof(item));
-            child.has_children = false;
+            
+            // Check if child also has children (nested structures)
+            py_Type item_type = py_typeof(item);
+            if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                child.has_children = true;
+                // Recursively extract children for nested structures (limited depth)
+                ExtractChildVariables(item, child.children, 50); // Reduced limit for nested items
+            } else {
+                child.has_children = false;
+            }
+            
             children.push_back(child);
         }
         
@@ -318,7 +328,17 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             child.name = "[" + std::to_string(i) + "]";
             child.value = GetValueRepr(item);
             child.type = GetSimpleTypeName(py_typeof(item));
-            child.has_children = false;
+            
+            // Check if child also has children (nested structures)
+            py_Type item_type = py_typeof(item);
+            if (item_type == tp_list || item_type == tp_dict || item_type == tp_tuple) {
+                child.has_children = true;
+                // Recursively extract children for nested structures (limited depth)
+                ExtractChildVariables(item, child.children, 50); // Reduced limit for nested items
+            } else {
+                child.has_children = false;
+            }
+            
             children.push_back(child);
         }
         
@@ -361,7 +381,17 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             
             child.value = GetValueRepr(val);
             child.type = GetSimpleTypeName(py_typeof(val));
-            child.has_children = false;
+            
+            // Check if child also has children (nested structures)
+            py_Type val_type = py_typeof(val);
+            if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+                child.has_children = true;
+                // Recursively extract children for nested structures (limited depth)
+                ExtractChildVariables(val, child.children, 50); // Reduced limit for nested items
+            } else {
+                child.has_children = false;
+            }
+            
             ctx->children->push_back(child);
             ctx->count++;
             
@@ -380,6 +410,8 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             children.push_back(more);
         }
     }
+    // Note: Module expansion is currently disabled for safety
+    // Will be implemented in a future update
 }
 
 // Helper callback for py_dict_apply to collect variables
@@ -413,6 +445,7 @@ static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
     var.type = GetSimpleTypeName(py_typeof(val));
     
     // Check if variable has children (expandable types)
+    // Note: Module expansion disabled for now
     py_Type val_type = py_typeof(val);
     if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
         var.has_children = true;
@@ -484,6 +517,7 @@ void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variable
         var.type = GetSimpleTypeName(py_typeof(value));
         
         // Check if variable has children (expandable types)
+        // Note: Module expansion disabled for now
         py_Type val_type = py_typeof(value);
         if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
             var.has_children = true;
