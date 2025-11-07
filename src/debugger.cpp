@@ -2,6 +2,10 @@
 
 #ifdef ENABLE_DEBUGGER
 
+#ifndef DEBUGGER_VERBOSE_LOGGING
+#define DEBUGGER_VERBOSE_LOGGING 0
+#endif
+
 #include <sstream>
 #include <chrono>
 
@@ -53,9 +57,11 @@ bool Debugger::Start(const std::string& code, const std::string& filename,
     m_paused.store(false);
     s_instance = this;
     
+#if DEBUGGER_VERBOSE_LOGGING
     if (logCallback) {
         logCallback("[info] Starting debugger in background thread (VM 1)...\n");
     }
+#endif
     
     // Start Python execution in background thread using VM 1
     // Main thread continues to use VM 0
@@ -437,6 +443,7 @@ void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
         s_instance->m_paused.store(true);
         s_instance->UpdateDebugInfo(frame);
         
+#if DEBUGGER_VERBOSE_LOGGING
         if (s_instance->m_logCallback) {
             std::ostringstream msg;
             msg << "[debug] Paused at " << s_instance->m_currentFile 
@@ -458,6 +465,7 @@ void Debugger::TraceCallback(py_Frame* frame, enum py_TraceEvent event) {
             msg << "\n";
             s_instance->m_logCallback(msg.str());
         }
+#endif
         
         // Wait for user action using condition variable
         // This blocks the Python thread but NOT the main GUI thread
