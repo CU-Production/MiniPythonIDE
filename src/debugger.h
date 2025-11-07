@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef ENABLE_DEBUGGER
-
+#define PK_IS_PUBLIC_INCLUDE
 #include "pocketpy.h"
 #include "pocketpy_debugger_internal.h"
 #include <string>

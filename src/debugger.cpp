@@ -26,6 +26,11 @@ bool Debugger::Start(const std::string& code, const std::string& filename,
     if (m_debugging.load()) {
         return false; // Already debugging
     }
+    
+    // Ensure previous thread is cleaned up
+    if (m_executionThread.joinable()) {
+        m_executionThread.join();
+    }
 
     m_logCallback = logCallback;
     m_debugging.store(true);
@@ -60,7 +65,7 @@ void Debugger::Stop() {
     if (m_executionThread.joinable()) {
         m_executionThread.join();
     }
-    
+
     if (m_logCallback) {
         m_logCallback("[info] Debug session ended\n");
     }
@@ -240,6 +245,30 @@ void Debugger::ExecuteInThread(const std::string& code, const std::string& filen
             s_vm1_logCallback(s);
         }
     };
+    
+    // Create test module for VM 1 if it doesn't exist
+    // Try to get existing module first
+    py_GlobalRef mod = py_getmodule("test");
+    if (!mod) {
+        // Module doesn't exist in VM 1, create it
+        mod = py_newmodule("test");
+        
+        // Set pi attribute
+        py_newfloat(py_r0(), 3.14);
+        py_setdict(mod, py_name("pi"), py_r0());
+        
+        // Bind add function
+        py_bindfunc(mod, "add", [](int argc, py_StackRef argv) -> bool {
+            if (argc != 2) return TypeError("add() requires 2 arguments");
+            
+            py_i64 a = py_toint(py_offset(argv, 0));
+            py_i64 b = py_toint(py_offset(argv, 1));
+            
+            // Create return value using retval
+            py_newint(py_retval(), a + b);
+            return true;
+        });
+    }
     
     // Initialize debugger (must be done AFTER py_switchvm)
     c11_debugger_init();
