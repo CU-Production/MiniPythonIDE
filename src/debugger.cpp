@@ -483,8 +483,72 @@ static void ExtractChildVariables(py_Ref value, std::vector<DebugVariable>& chil
             }
         }
     }
-    // Note: Module expansion is currently disabled for safety
-    // Will be implemented in a future update
+    else if (type == tp_module) {
+        // Extract module attributes using dir() + getattr
+        // Save the module to stack for evaluation
+        py_push(value);
+        
+        // Call dir() to get list of attribute names
+        const char* eval_code = "dir(_0)";
+        if (py_smarteval(eval_code, NULL, value)) {
+            py_Ref attr_list = py_retval();
+            
+            if (py_islist(attr_list)) {
+                int attr_count = py_list_len(attr_list);
+                int shown_count = 0;
+                
+                for (int i = 0; i < attr_count && shown_count < max_items; i++) {
+                    py_ItemRef attr_name_obj = py_list_getitem(attr_list, i);
+                    if (!attr_name_obj || !py_isstr(attr_name_obj)) continue;
+                    
+                    std::string attr_name = py_tostr(attr_name_obj);
+                    
+                    // Skip private/internal attributes
+                    if (!attr_name.empty() && attr_name[0] == '_') {
+                        continue;
+                    }
+                    
+                    // Get attribute value using py_getdict (safer than py_getattr in this context)
+                    py_Name name = py_name(attr_name.c_str());
+                    py_Ref attr_value = py_getdict(value, name);
+                    
+                    if (attr_value) {
+                        DebugVariable child;
+                        child.name = attr_name;
+                        child.value = GetValueRepr(attr_value);
+                        child.type = GetSimpleTypeName(py_typeof(attr_value));
+                        
+                        // Check if attribute has children
+                        py_Type val_type = py_typeof(attr_value);
+                        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+                            child.has_children = true;
+                            ExtractChildVariables(attr_value, child.children, 50);
+                        } else {
+                            child.has_children = false;
+                        }
+                        
+                        children.push_back(child);
+                        shown_count++;
+                    }
+                }
+            }
+        } else {
+            // If dir() fails, clear exception
+            py_clearexc(NULL);
+        }
+        
+        py_pop(); // Remove pushed module
+        
+        // If no items were collected, show a note
+        if (children.empty()) {
+            DebugVariable note;
+            note.name = "(no public attributes found)";
+            note.value = "";
+            note.type = "";
+            note.has_children = false;
+            children.push_back(note);
+        }
+    }
 }
 
 // Helper callback for py_dict_apply to collect variables
@@ -518,9 +582,8 @@ static bool CollectVariablesCallback(py_Ref key, py_Ref val, void* ctx) {
     var.type = GetSimpleTypeName(py_typeof(val));
     
     // Check if variable has children (expandable types)
-    // Note: Module expansion disabled for now
     py_Type val_type = py_typeof(val);
-    if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+    if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || val_type == tp_module) {
         var.has_children = true;
         // Extract children for expandable types
         ExtractChildVariables(val, var.children);
@@ -590,9 +653,8 @@ void Debugger::ExtractVariables(py_Ref obj, std::vector<DebugVariable>& variable
         var.type = GetSimpleTypeName(py_typeof(value));
         
         // Check if variable has children (expandable types)
-        // Note: Module expansion disabled for now
         py_Type val_type = py_typeof(value);
-        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple) {
+        if (val_type == tp_list || val_type == tp_dict || val_type == tp_tuple || val_type == tp_module) {
             var.has_children = true;
             // Extract children for expandable types
             ExtractChildVariables(value, var.children);
