@@ -3,6 +3,7 @@
 #ifdef ENABLE_DEBUGGER
 
 #include "dap_client.h"
+#include "../../3rd_party/nlohmann/json.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -11,6 +12,8 @@
 #include <functional>
 #include <memory>
 #include <SDL3/SDL.h>
+
+using json = nlohmann::json;
 
 // Stack frame information
 struct DebugStackFrame {
@@ -76,6 +79,9 @@ public:
     
     // Get variable tree version (increments on each step to reset UI state)
     int GetVariableTreeVersion() const { return m_variableTreeVersion; }
+    
+    // Convert debug variables to JSON format (for JSON tree viewer)
+    json VariablesToJson(const std::vector<DebugVariable>& vars);
     
     // Request to expand a variable's children (for lazy loading)
     void RequestExpandVariable(int variablesReference);

@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 #include "editor.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger.h"
+#include "json_tree_viewer.h"
 #endif
 #include "../fonts/Cousine-Regular.cpp"
 
@@ -192,6 +193,7 @@ static ExampleAppConsole console;
 
 #ifdef ENABLE_DEBUGGER
 static Debugger debugger;
+static JsonTreeViewer jsonViewer;
 #endif
 
 // Global process tracking for cleanup on exit
@@ -341,6 +343,12 @@ int main(int, char**)
             debugger.RemoveBreakpoint(filename, line);
             console.AddLog("Breakpoint removed: %s:%d\n", filename.c_str(), line);
         }
+    });
+    
+    // Setup JSON viewer lazy load callback
+    jsonViewer.SetLazyLoadCallback([&](int variablesReference) -> json {
+        debugger.RequestExpandVariable(variablesReference);
+        return json::object();  // Return empty, will be populated in next frame
     });
 #endif
 
@@ -849,146 +857,16 @@ int main(int, char**)
 
 #ifdef ENABLE_DEBUGGER
 
-        // Helper to truncate long strings
-        auto truncateValue = [](const std::string& value, size_t maxLen = 100) -> std::string {
-            if (value.length() <= maxLen) return value;
-            return value.substr(0, maxLen) + "...";
-        };
-        
-        // Recursive helper to render variable rows with children
-        std::function<void(const DebugVariable&, int, int)> renderVariableRow;
-        renderVariableRow = [&renderVariableRow, &truncateValue](const DebugVariable& var, int idx, int depth) {
-            ImGui::PushID(idx);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            
-            // Indentation for nested variables
-            for (int i = 0; i < depth; i++) {
-                ImGui::Indent(16.0f);
-            }
-            
-            // Variable name with expand/collapse button if it has children
-            std::string displayName = var.name.empty() ? "<unnamed>" : var.name;
-            bool hasChildren = var.has_children || !var.children.empty();
-            
-            if (hasChildren) {
-                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth;
-                if (var.children.empty() && !var.children_loaded) {
-                    flags |= ImGuiTreeNodeFlags_Leaf;  // Show as expandable but not expanded yet
-                }
-                
-                bool isOpen = ImGui::TreeNodeEx(displayName.c_str(), flags);
-                
-                // If expanded and children not loaded yet, request them (lazy loading)
-                if (isOpen && var.children.empty() && !var.children_loaded && var.variables_reference > 0) {
-                    debugger.RequestExpandVariable(var.variables_reference);
-                }
-                
-                if (isOpen) {
-                    // Show value and type in same row
-                    ImGui::TableNextColumn();
-                    
-                    // Truncate long values
-                    std::string displayValue = truncateValue(var.value);
-                    ImGui::TextWrapped("%s", displayValue.c_str());
-                    
-                    // Add hover tooltip for full value if truncated
-                    if (displayValue != var.value && ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-                        ImGui::TextUnformatted(var.value.c_str());
-                        ImGui::PopTextWrapPos();
-                        ImGui::EndTooltip();
-                    }
-                    
-                    ImGui::TableNextColumn();
-                    if (!var.type.empty()) {
-                        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
-                    }
-                    
-                    // Show loading indicator or children
-                    if (var.children.empty() && var.variables_reference > 0) {
-                        // Children being loaded
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn();
-                        for (int i = 0; i <= depth; i++) {
-                            ImGui::Indent(16.0f);
-                        }
-                        ImGui::TextDisabled("Loading...");
-                        for (int i = 0; i <= depth; i++) {
-                            ImGui::Unindent(16.0f);
-                        }
-                    } else {
-                        // Render children recursively
-                        for (size_t i = 0; i < var.children.size(); i++) {
-                            renderVariableRow(var.children[i], (int)(idx * 1000 + i), depth + 1);
-                        }
-                    }
-                    
-                    ImGui::TreePop();
-                }
-                else {
-                    // Collapsed state - still show value and type
-                    ImGui::TableNextColumn();
-                    
-                    std::string displayValue = truncateValue(var.value);
-                    ImGui::TextWrapped("%s", displayValue.c_str());
-                    
-                    // Hover tooltip
-                    if (displayValue != var.value && ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-                        ImGui::TextUnformatted(var.value.c_str());
-                        ImGui::PopTextWrapPos();
-                        ImGui::EndTooltip();
-                    }
-                    
-                    ImGui::TableNextColumn();
-                    if (!var.type.empty()) {
-                        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
-                    }
-                }
-            }
-            else {
-                // Simple variable without children
-                ImGui::Text("%s", displayName.c_str());
-                
-                ImGui::TableNextColumn();
-                
-                std::string displayValue = truncateValue(var.value);
-                ImGui::TextWrapped("%s", displayValue.c_str());
-                
-                // Hover tooltip for full value
-                if (displayValue != var.value && ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-                    ImGui::TextUnformatted(var.value.c_str());
-                    ImGui::PopTextWrapPos();
-                    ImGui::EndTooltip();
-                }
-                
-                ImGui::TableNextColumn();
-                if (!var.type.empty()) {
-                    ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
-                }
-            }
-            
-            // Undo indentation
-            for (int i = 0; i < depth; i++) {
-                ImGui::Unindent(16.0f);
-            }
-            
-            ImGui::PopID();
-        };
+        // Update tree version for JSON viewer
+        int treeVersion = debugger.GetVariableTreeVersion();
+        jsonViewer.SetTreeVersion(treeVersion);
 
-        // Variables Window
+        // Variables Window - Using JSON Tree Viewer
         if (show_variables_window && debugger.IsDebugging())
         {
             if (ImGui::Begin("Variables", &show_variables_window))
             {
-                // Get variable tree version to reset UI state on each step
-                int treeVersion = debugger.GetVariableTreeVersion();
-                
+                // ==================== Local Variables ====================
                 if (ImGui::CollapsingHeader("Local Variables", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     const auto& locals = debugger.GetLocalVariables();
@@ -998,27 +876,33 @@ int main(int, char**)
                     }
                     else
                     {
-                        if (ImGui::BeginTable("LocalVars", 3, 
-                            ImGuiTableFlags_Borders | 
-                            ImGuiTableFlags_RowBg | 
-                            ImGuiTableFlags_Resizable |
-                            ImGuiTableFlags_ScrollY))
+                        ImGui::BeginChild("LocalVarsChild", ImVec2(0, 300), true, ImGuiWindowFlags_HorizontalScrollbar);
+                        
+                        // Convert to JSON and render
+                        json localsJson = debugger.VariablesToJson(locals);
+                        
+                        for (size_t i = 0; i < localsJson.size(); i++)
                         {
-                            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-                            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-                            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-                            ImGui::TableHeadersRow();
+                            const auto& item = localsJson[i];
+                            std::string name = item.value("name", "");
+                            int varRef = item.value("variablesReference", 0);
                             
-                            for (size_t i = 0; i < locals.size(); i++)
-                            {
-                                // Use tree version in ID to force reset on each step
-                                renderVariableRow(locals[i], (int)(treeVersion * 100000 + i), 0);
+                            jsonViewer.RenderTree((int)i, name, item, varRef);
+                            
+                            if (i < localsJson.size() - 1) {
+                                ImGui::Separator();
                             }
-                            ImGui::EndTable();
                         }
+                        
+                        ImGui::EndChild();
                     }
                 }
                 
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+                
+                // ==================== Global Variables ====================
                 if (ImGui::CollapsingHeader("Global Variables"))
                 {
                     const auto& globals = debugger.GetGlobalVariables();
@@ -1028,24 +912,26 @@ int main(int, char**)
                     }
                     else
                     {
-                        if (ImGui::BeginTable("GlobalVars", 3, 
-                            ImGuiTableFlags_Borders | 
-                            ImGuiTableFlags_RowBg | 
-                            ImGuiTableFlags_Resizable |
-                            ImGuiTableFlags_ScrollY))
+                        ImGui::BeginChild("GlobalVarsChild", ImVec2(0, 300), true, ImGuiWindowFlags_HorizontalScrollbar);
+                        
+                        // Convert to JSON and render
+                        json globalsJson = debugger.VariablesToJson(globals);
+                        
+                        for (size_t i = 0; i < globalsJson.size(); i++)
                         {
-                            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-                            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-                            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-                            ImGui::TableHeadersRow();
+                            const auto& item = globalsJson[i];
+                            std::string name = item.value("name", "");
+                            int varRef = item.value("variablesReference", 0);
                             
-                            for (size_t i = 0; i < globals.size(); i++)
-                            {
-                                // Use tree version in ID to force reset on each step
-                                renderVariableRow(globals[i], (int)(treeVersion * 100000 + i + 10000), 0);
+                            // Use different ID range to avoid collision
+                            jsonViewer.RenderTree((int)(i + 10000), name, item, varRef);
+                            
+                            if (i < globalsJson.size() - 1) {
+                                ImGui::Separator();
                             }
-                            ImGui::EndTable();
                         }
+                        
+                        ImGui::EndChild();
                     }
                 }
             }

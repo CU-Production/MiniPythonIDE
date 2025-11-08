@@ -611,4 +611,37 @@ bool Debugger::UpdateVariableChildrenInTree(std::vector<DebugVariable>& vars, in
     return false;
 }
 
+json Debugger::VariablesToJson(const std::vector<DebugVariable>& vars) {
+    json result = json::array();
+    
+    for (const auto& var : vars) {
+        json item;
+        item["name"] = var.name;
+        item["value"] = var.value;
+        item["type"] = var.type;
+        item["variablesReference"] = var.variables_reference;
+        
+        // For JSON viewer: create a "display" string that combines value and type
+        std::string displayValue = var.value;
+        if (!var.type.empty()) {
+            displayValue += " (" + var.type + ")";
+        }
+        item["display"] = displayValue;
+        
+        // If has children and they're loaded, recursively convert them
+        if (!var.children.empty()) {
+            item["children"] = VariablesToJson(var.children);
+        }
+        // If has children but not loaded, mark as expandable
+        else if (var.has_children || var.variables_reference > 0) {
+            item["children"] = json::array();  // Empty array indicates expandable but not loaded
+            item["expandable"] = true;
+        }
+        
+        result.push_back(item);
+    }
+    
+    return result;
+}
+
 #endif // ENABLE_DEBUGGER

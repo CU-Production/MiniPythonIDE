@@ -48,7 +48,9 @@ if(ENABLE_DEBUGGER)
         src/ide/dap_client.cpp
         src/ide/dap_client.h
         src/ide/debugger.cpp
-        src/ide/debugger.h)
+        src/ide/debugger.h
+        src/ide/json_tree_viewer.cpp
+        src/ide/json_tree_viewer.h)
 endif()
 
 add_executable(MiniPythonIDE ${MINIPYTHONIDE_SOURCES})
