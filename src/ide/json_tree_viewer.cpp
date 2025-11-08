@@ -1,5 +1,6 @@
 #include "json_tree_viewer.h"
 #include <sstream>
+#include <algorithm>
 
 void JsonTreeViewer::RenderTree(int id, const std::string& name, const json& value, int variablesReference) {
     // Use tree version in ID to force reset on debug step
@@ -76,11 +77,48 @@ void JsonTreeViewer::RenderDAPVariable(int id, const json& dapVar) {
             else if (childrenLoaded) {
                 // Render children
                 ImGui::Indent();
-                for (size_t i = 0; i < children.size(); i++) {
-                    const auto& child = children[i];
-                    int childVarRef = child.value("variablesReference", 0);
-                    RenderTree(id * 1000 + (int)i, child.value("name", ""), child, childVarRef);
+                
+                // Check if this is a list/array type with many elements
+                bool isList = (type == "list" || type == "tuple");
+                size_t childCount = children.size();
+                const size_t segmentSize = 100;
+                
+                if (isList && childCount > segmentSize) {
+                    // Segmented display for long lists
+                    size_t segmentCount = (childCount + segmentSize - 1) / segmentSize;
+                    
+                    for (size_t seg = 0; seg < segmentCount; seg++) {
+                        size_t startIdx = seg * segmentSize;
+                        size_t endIdx = std::min(startIdx + segmentSize, childCount);
+                        
+                        // Create segment label
+                        std::string segmentLabel = "[" + std::to_string(startIdx) + 
+                                                   " ... " + std::to_string(endIdx - 1) + 
+                                                   "] (" + std::to_string(endIdx - startIdx) + " items)";
+                        
+                        ImGuiTreeNodeFlags segFlags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth;
+                        bool segmentOpen = ImGui::TreeNodeEx(segmentLabel.c_str(), segFlags);
+                        
+                        if (segmentOpen) {
+                            // Render items in this segment
+                            for (size_t i = startIdx; i < endIdx; i++) {
+                                const auto& child = children[i];
+                                int childVarRef = child.value("variablesReference", 0);
+                                RenderTree(id * 1000 + (int)i, child.value("name", ""), child, childVarRef);
+                            }
+                            ImGui::TreePop();
+                        }
+                    }
                 }
+                else {
+                    // Normal display for short lists or non-list types
+                    for (size_t i = 0; i < children.size(); i++) {
+                        const auto& child = children[i];
+                        int childVarRef = child.value("variablesReference", 0);
+                        RenderTree(id * 1000 + (int)i, child.value("name", ""), child, childVarRef);
+                    }
+                }
+                
                 ImGui::Unindent();
             }
             
