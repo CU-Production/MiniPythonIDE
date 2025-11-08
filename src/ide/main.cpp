@@ -852,24 +852,24 @@ int main(int, char**)
         // Simple helper to render one variable row
         auto renderVariableRow = [](const DebugVariable& var, int idx) {
             ImGui::PushID(idx);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                
             // Variable name
             std::string displayName = var.name.empty() ? "<unnamed>" : var.name;
             ImGui::Text("%s", displayName.c_str());
             
             // Value column
-            ImGui::TableNextColumn();
+                    ImGui::TableNextColumn();
             ImGui::TextWrapped("%s", var.value.c_str());
             
             // Type column
-            ImGui::TableNextColumn();
+                    ImGui::TableNextColumn();
             if (!var.type.empty()) {
                 ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
-            }
+                    }
             
-            ImGui::PopID();
+                ImGui::PopID();
         };
 
         // Variables Window

@@ -591,6 +591,8 @@ bool DAPClient::Terminate() {
 void DAPClient::ParseVariables(const json& variables, std::vector<DAPVariable>& outVars) {
     outVars.clear();
     
+    std::cout << "[DAP] Parsing " << variables.size() << " variables" << std::endl;
+    
     for (const auto& var : variables) {
         DAPVariable dapVar;
         dapVar.name = var.value("name", "");
@@ -599,8 +601,13 @@ void DAPClient::ParseVariables(const json& variables, std::vector<DAPVariable>& 
         dapVar.variablesReference = var.value("variablesReference", 0);
         dapVar.hasChildren = (dapVar.variablesReference > 0);
         
+        std::cout << "[DAP]   Variable: " << dapVar.name << " = " << dapVar.value 
+                  << " (type: " << dapVar.type << ", hasChildren: " << dapVar.hasChildren << ")" << std::endl;
+        
         outVars.push_back(dapVar);
     }
+    
+    std::cout << "[DAP] Total variables stored: " << outVars.size() << std::endl;
 }
 
 #endif // ENABLE_DEBUGGER

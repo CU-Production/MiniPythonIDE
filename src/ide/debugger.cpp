@@ -432,8 +432,8 @@ void Debugger::UpdateDebugInfo() {
         return;
     }
     
-    // Give some time for async DAP responses to arrive
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Give more time for async DAP responses to arrive
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     
     // Get stack frames from DAP client (already requested in stopped event)
     const auto& dapFrames = m_dapClient->GetStackFrames();
@@ -446,12 +446,26 @@ void Debugger::UpdateDebugInfo() {
         m_stackFrames.push_back(frame);
     }
     
+    if (m_logCallback) {
+        m_logCallback("[debug] Stack frames: " + std::to_string(m_stackFrames.size()) + "\n");
+    }
+    
     // Get variables from DAP client (already requested via scopes)
     const auto& dapLocals = m_dapClient->GetLocalVariables();
     const auto& dapGlobals = m_dapClient->GetGlobalVariables();
     
+    if (m_logCallback) {
+        m_logCallback("[debug] DAP locals: " + std::to_string(dapLocals.size()) + 
+                     ", globals: " + std::to_string(dapGlobals.size()) + "\n");
+    }
+    
     ConvertDAPVariables(dapLocals, m_localVariables);
     ConvertDAPVariables(dapGlobals, m_globalVariables);
+    
+    if (m_logCallback) {
+        m_logCallback("[debug] Converted locals: " + std::to_string(m_localVariables.size()) + 
+                     ", globals: " + std::to_string(m_globalVariables.size()) + "\n");
+    }
 }
 
 void Debugger::ConvertDAPVariables(const std::vector<DAPVariable>& dapVars, std::vector<DebugVariable>& outVars) {
