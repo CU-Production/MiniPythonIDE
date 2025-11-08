@@ -80,6 +80,8 @@ target_link_libraries(MiniPythonIDE PRIVATE
 if(WIN32)
     target_link_libraries(MiniPythonIDE PRIVATE ws2_32)
 endif()
+
+add_dependencies(MiniPythonIDE pkpy)
 add_custom_command(
         TARGET MiniPythonIDE POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
