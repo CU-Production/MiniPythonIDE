@@ -303,7 +303,7 @@ void DAPClient::ProcessEvent(const std::string& event, const json& body) {
         m_localScopeRef = -1;
         m_globalScopeRef = -1;
         
-        std::cout << "[DAP] Stopped event received, cleared old variables" << std::endl;
+        DAP_LOG("[DAP] Stopped event received, cleared old variables");
         
         // Request stack trace to get current location
         StackTrace(m_currentThreadId);
@@ -487,7 +487,7 @@ bool DAPClient::StackTrace(int threadId) {
                     if (m_connected.load() && m_stopped.load()) {
                         Scopes(topFrameId);
                     } else {
-                        std::cout << "[DAP] Skipping scopes request (disconnected or not stopped)" << std::endl;
+                        DAP_LOG("[DAP] Skipping scopes request (disconnected or not stopped)");
                     }
                 }).detach();
             }
@@ -510,27 +510,27 @@ bool DAPClient::Scopes(int frameId) {
         {"frameId", frameId}
     };
     
-    std::cout << "[DAP] Requesting scopes for frame " << frameId << std::endl;
+    DAP_LOG("[DAP] Requesting scopes for frame " << frameId);
     
     int seq;
     {
         std::lock_guard<std::mutex> lock(m_requestMutex);
         seq = m_nextSeq++;
         m_pendingRequests[seq] = [this](const json& response) {
-            std::cout << "[DAP] Received scopes response" << std::endl;
+            DAP_LOG("[DAP] Received scopes response");
             
             if (!response.contains("body")) {
-                std::cout << "[DAP] ERROR: No 'body' in scopes response" << std::endl;
+                DAP_LOG("[DAP] ERROR: No 'body' in scopes response");
                 return;
             }
             
             if (!response["body"].contains("scopes")) {
-                std::cout << "[DAP] ERROR: No 'scopes' in response body" << std::endl;
+                DAP_LOG("[DAP] ERROR: No 'scopes' in response body");
                 return;
             }
             
             auto& scopes = response["body"]["scopes"];
-            std::cout << "[DAP] Found " << scopes.size() << " scopes" << std::endl;
+            DAP_LOG("[DAP] Found " << scopes.size() << " scopes");
             
             // Reset scope references
             m_localScopeRef = -1;
@@ -549,13 +549,13 @@ bool DAPClient::Scopes(int frameId) {
                 // Note: pocketpy.c returns lowercase "locals", debug_adapter.py returns Chinese "局部变量"
                 if (name == "locals" || name == "局部变量" || name == "Locals" || name == "Local" || hint == "locals") {
                     m_localScopeRef = varRef;
-                    std::cout << "[DAP] Found local scope '" << name << "' with ref: " << varRef << std::endl;
+                    DAP_LOG("[DAP] Found local scope '" << name << "' with ref: " << varRef);
                 }
                 // Check for global scope (by name or hint)
                 // Note: pocketpy.c returns lowercase "globals", debug_adapter.py returns Chinese "全局变量"
                 else if (name == "globals" || name == "全局变量" || name == "Globals" || name == "Global" || hint == "globals") {
                     m_globalScopeRef = varRef;
-                    std::cout << "[DAP] Found global scope '" << name << "' with ref: " << varRef << std::endl;
+                    DAP_LOG("[DAP] Found global scope '" << name << "' with ref: " << varRef);
                 }
             }
             
@@ -567,7 +567,7 @@ bool DAPClient::Scopes(int frameId) {
                     if (m_connected.load() && m_stopped.load()) {
                         Variables(localRef);
                     } else {
-                        std::cout << "[DAP] Skipping local variables request" << std::endl;
+                        DAP_LOG("[DAP] Skipping local variables request");
                     }
                 }).detach();
             }
@@ -580,7 +580,7 @@ bool DAPClient::Scopes(int frameId) {
                     if (m_connected.load() && m_stopped.load()) {
                         Variables(globalRef);
                     } else {
-                        std::cout << "[DAP] Skipping global variables request" << std::endl;
+                        DAP_LOG("[DAP] Skipping global variables request");
                     }
                 }).detach();
             }
@@ -603,43 +603,43 @@ bool DAPClient::Variables(int variablesReference) {
         {"variablesReference", variablesReference}
     };
     
-    std::cout << "[DAP] Requesting variables for ref " << variablesReference << std::endl;
+    DAP_LOG("[DAP] Requesting variables for ref " << variablesReference);
     
     int seq;
     {
         std::lock_guard<std::mutex> lock(m_requestMutex);
         seq = m_nextSeq++;
         m_pendingRequests[seq] = [this, variablesReference](const json& response) {
-            std::cout << "[DAP] Received variables response for ref " << variablesReference << std::endl;
+            DAP_LOG("[DAP] Received variables response for ref " << variablesReference);
             
             if (!response.contains("body")) {
-                std::cout << "[DAP] ERROR: No 'body' in variables response" << std::endl;
+                DAP_LOG("[DAP] ERROR: No 'body' in variables response");
                 return;
             }
             
             if (!response["body"].contains("variables")) {
-                std::cout << "[DAP] ERROR: No 'variables' in response body" << std::endl;
+                DAP_LOG("[DAP] ERROR: No 'variables' in response body");
                 return;
             }
             
             auto& variables = response["body"]["variables"];
-            std::cout << "[DAP] Found " << variables.size() << " variables for ref " << variablesReference << std::endl;
+            DAP_LOG("[DAP] Found " << variables.size() << " variables for ref " << variablesReference);
             
             // Determine if this is a local or global scope request
             if (variablesReference == m_localScopeRef) {
                 // This is the local variables scope
-                std::cout << "[DAP] Parsing local variables (ref: " << variablesReference << ")" << std::endl;
+                DAP_LOG("[DAP] Parsing local variables (ref: " << variablesReference << ")");
                 ParseVariables(variables, m_localVariables);
             } 
             else if (variablesReference == m_globalScopeRef) {
                 // This is the global variables scope
-                std::cout << "[DAP] Parsing global variables (ref: " << variablesReference << ")" << std::endl;
+                DAP_LOG("[DAP] Parsing global variables (ref: " << variablesReference << ")");
                 ParseVariables(variables, m_globalVariables);
             }
             else {
                 // This is a child variable expansion request
                 // Store in cache for later retrieval
-                std::cout << "[DAP] Caching child variables (ref: " << variablesReference << ")" << std::endl;
+                DAP_LOG("[DAP] Caching child variables (ref: " << variablesReference << ")");
                 std::vector<DAPVariable> childVars;
                 ParseVariables(variables, childVars);
                 m_variablesCache[variablesReference] = childVars;
@@ -692,7 +692,7 @@ bool DAPClient::Terminate() {
 void DAPClient::ParseVariables(const json& variables, std::vector<DAPVariable>& outVars) {
     outVars.clear();
     
-    std::cout << "[DAP] Parsing " << variables.size() << " variables" << std::endl;
+    DAP_LOG("[DAP] Parsing " << variables.size() << " variables");
     
     for (const auto& var : variables) {
         DAPVariable dapVar;
@@ -702,14 +702,14 @@ void DAPClient::ParseVariables(const json& variables, std::vector<DAPVariable>& 
         dapVar.variablesReference = var.value("variablesReference", 0);
         dapVar.hasChildren = (dapVar.variablesReference > 0);
         
-        std::cout << "[DAP]   Variable: " << dapVar.name << " = " << dapVar.value 
+        DAP_LOG("[DAP]   Variable: " << dapVar.name << " = " << dapVar.value 
                   << " (type: " << dapVar.type << ", hasChildren: " << dapVar.hasChildren 
-                  << ", varRef: " << dapVar.variablesReference << ")" << std::endl;
+                  << ", varRef: " << dapVar.variablesReference << ")");
         
         outVars.push_back(dapVar);
     }
     
-    std::cout << "[DAP] Total variables stored: " << outVars.size() << std::endl;
+    DAP_LOG("[DAP] Total variables stored: " << outVars.size());
 }
 
 void DAPClient::UpdateVariableChildren(int variablesReference, const std::vector<DAPVariable>& children) {
@@ -718,8 +718,8 @@ void DAPClient::UpdateVariableChildren(int variablesReference, const std::vector
         for (auto& var : vars) {
             if (var.variablesReference == varRef) {
                 var.children = children;
-                std::cout << "[DAP] Updated children for variable '" << var.name 
-                         << "' (ref: " << varRef << "), added " << children.size() << " children" << std::endl;
+                DAP_LOG("[DAP] Updated children for variable '" << var.name 
+                         << "' (ref: " << varRef << "), added " << children.size() << " children");
                 return true;
             }
             // Recursively search in children
@@ -742,7 +742,7 @@ void DAPClient::UpdateVariableChildren(int variablesReference, const std::vector
         return;
     }
     
-    std::cout << "[DAP] Warning: Could not find parent variable with ref " << variablesReference << std::endl;
+    DAP_LOG("[DAP] Warning: Could not find parent variable with ref " << variablesReference);
 }
 
 #endif // ENABLE_DEBUGGER

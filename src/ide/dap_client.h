@@ -14,6 +14,16 @@
 // Use nlohmann::json
 using json = nlohmann::json;
 
+// Debug logging control
+// Uncomment the line below to enable detailed DAP protocol debug logs
+// #define ENABLE_DAP_DEBUG_LOGS
+
+#ifdef ENABLE_DAP_DEBUG_LOGS
+    #define DAP_LOG(msg) std::cout << msg << std::endl
+#else
+    #define DAP_LOG(msg) ((void)0)
+#endif
+
 // DAP protocol structures
 struct DAPSourceLocation {
     std::string source;
