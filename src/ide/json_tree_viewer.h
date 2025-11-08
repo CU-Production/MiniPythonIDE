@@ -44,6 +44,7 @@ public:
     
 private:
     void RenderValue(const std::string& name, const json& value);
+    void RenderDAPVariable(int id, const json& dapVar);
     void RenderObject(int id, const std::string& name, const json& obj, int variablesReference);
     void RenderArray(int id, const std::string& name, const json& arr, int variablesReference);
     void RenderPrimitive(const std::string& name, const json& value);

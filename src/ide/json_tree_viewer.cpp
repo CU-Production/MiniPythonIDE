@@ -7,7 +7,17 @@ void JsonTreeViewer::RenderTree(int id, const std::string& name, const json& val
     
     ImGui::PushID(uniqueId);
     
-    if (value.is_object()) {
+    // Check if this is a DAP variable object (has name, value, type, variablesReference fields)
+    bool isDAPVariable = value.is_object() && 
+                         value.contains("name") && 
+                         value.contains("value") && 
+                         value.contains("variablesReference");
+    
+    if (isDAPVariable) {
+        // Render DAP variable with lazy loading support
+        RenderDAPVariable(uniqueId, value);
+    }
+    else if (value.is_object()) {
         RenderObject(uniqueId, name, value, variablesReference);
     }
     else if (value.is_array()) {
@@ -18,6 +28,103 @@ void JsonTreeViewer::RenderTree(int id, const std::string& name, const json& val
     }
     
     ImGui::PopID();
+}
+
+void JsonTreeViewer::RenderDAPVariable(int id, const json& dapVar) {
+    // Extract DAP variable fields
+    std::string name = dapVar.value("name", "<unnamed>");
+    std::string value = dapVar.value("value", "");
+    std::string type = dapVar.value("type", "");
+    int varRef = dapVar.value("variablesReference", 0);
+    bool expandable = dapVar.value("expandable", false);
+    
+    // Check if has children
+    bool hasChildren = varRef > 0 || expandable;
+    json children = dapVar.value("children", json::array());
+    bool childrenLoaded = !children.empty();
+    
+    ImGui::AlignTextToFramePadding();
+    
+    if (hasChildren) {
+        // Render as expandable tree node
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth;
+        
+        // Build label with type hint
+        std::string label = name;
+        if (!type.empty()) {
+            label += " (" + type + ")";
+        }
+        
+        bool isOpen = ImGui::TreeNodeEx(label.c_str(), flags);
+        
+        // Show value summary on same line (truncated)
+        if (!value.empty() && value.length() < 60) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", TruncateString(value, 40).c_str());
+        }
+        
+        if (isOpen) {
+            // Lazy load if needed
+            if (!childrenLoaded && varRef > 0 && m_lazyLoadCallback) {
+                ImGui::Indent();
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Loading...");
+                ImGui::Unindent();
+                
+                // Request lazy load
+                m_lazyLoadCallback(varRef);
+            }
+            else if (childrenLoaded) {
+                // Render children
+                ImGui::Indent();
+                for (size_t i = 0; i < children.size(); i++) {
+                    const auto& child = children[i];
+                    int childVarRef = child.value("variablesReference", 0);
+                    RenderTree(id * 1000 + (int)i, child.value("name", ""), child, childVarRef);
+                }
+                ImGui::Unindent();
+            }
+            
+            ImGui::TreePop();
+        }
+    }
+    else {
+        // Render as simple value
+        ImGui::Text("%s:", name.c_str());
+        ImGui::SameLine();
+        
+        // Determine color based on type
+        ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        if (type == "int" || type == "float" || type == "number") {
+            color = ImVec4(0.6f, 1.0f, 0.6f, 1.0f);  // Green
+        }
+        else if (type == "str" || type == "string") {
+            color = ImVec4(1.0f, 0.8f, 0.6f, 1.0f);  // Orange
+        }
+        else if (type == "bool") {
+            color = ImVec4(0.3f, 0.8f, 1.0f, 1.0f);  // Cyan
+        }
+        else if (type == "NoneType" || value == "None") {
+            color = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);  // Gray
+        }
+        
+        std::string displayValue = TruncateString(value);
+        ImGui::TextColored(color, "%s", displayValue.c_str());
+        
+        // Hover tooltip for full value if truncated
+        if (displayValue != value && ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 50.0f);
+            ImGui::TextUnformatted(value.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
+        
+        // Type info
+        if (!type.empty()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%s)", type.c_str());
+        }
+    }
 }
 
 void JsonTreeViewer::RenderObject(int id, const std::string& name, const json& obj, int variablesReference) {
