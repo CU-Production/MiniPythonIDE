@@ -13,11 +13,24 @@ option(ENABLE_DEBUGGER "Enable Python debugger support" ON)
 
 add_subdirectory(3rd_party)
 
+# pocketpy python.exe
+add_executable(pkpy src/exe/main.c 3rd_party/pocketpy/pocketpy.c)
+target_include_directories(pkpy PRIVATE 3rd_party/pocketpy)
+# PocketPy threading is now enabled with C11 atomics support
+if(MSVC)
+    target_compile_options(pkpy PRIVATE "/bigobj")
+    target_compile_options(pkpy PRIVATE "/utf-8")
+    target_compile_options(pkpy PRIVATE "/experimental:c11atomics")
+endif()
+if(WIN32)
+    target_link_libraries(pkpy PRIVATE ws2_32)
+endif()
+
 # Source files
 set(MINIPYTHONIDE_SOURCES
-        src/main.cpp
-        src/editor.cpp
-        src/editor.h
+        src/ide/main.cpp
+        src/ide/editor.cpp
+        src/ide/editor.h
         3rd_party/tinyfiledialogs/tinyfiledialogs.c
         3rd_party/imgui/imgui.cpp
         3rd_party/imgui/imgui_draw.cpp
@@ -32,9 +45,9 @@ set(MINIPYTHONIDE_SOURCES
 # Add debugger sources if enabled
 if(ENABLE_DEBUGGER)
     list(APPEND MINIPYTHONIDE_SOURCES
-        src/debugger.cpp
-        src/debugger.h
-        src/pocketpy_debugger_internal.h)
+        src/ide/debugger.cpp
+        src/ide/debugger.h
+        src/ide/pocketpy_debugger_internal.h)
 endif()
 
 add_executable(MiniPythonIDE ${MINIPYTHONIDE_SOURCES})
