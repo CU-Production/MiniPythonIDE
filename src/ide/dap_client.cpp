@@ -146,11 +146,12 @@ void DAPClient::ReceiveThread() {
             break;
         }
 
-        json msg = json::parse(message);
         try {
+            json msg = json::parse(message);
             ProcessMessage(msg);
         } catch (const std::exception& e) {
             std::cerr << "Error parsing message: " << e.what() << std::endl;
+            json msg = json::parse(message);
             std::cerr << "Json string : " << msg.dump() << std::endl;
         }
     }
