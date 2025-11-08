@@ -337,6 +337,99 @@ int main(int, char**)
         });
     };
     
+    // Helper function to run script via pkpy process with output capture
+    auto runScriptViaProcess = [&](const std::string& code, const std::string& filename) {
+        // Determine script path
+        std::string scriptPath;
+        bool isRealFile = !filename.empty() && 
+                          filename != "<string>" && 
+                          filename != "<editor>" &&
+                          fs::exists(filename);
+        
+        if (isRealFile) {
+            scriptPath = filename;
+            // Write current content to file (handle unsaved changes)
+            std::ofstream outFile(scriptPath);
+            if (outFile) {
+                outFile << code;
+                outFile.close();
+                console.AddLog("[info] Using file: %s\n", scriptPath.c_str());
+            } else {
+                console.AddLog("[error] Failed to write to file: %s\n", scriptPath.c_str());
+                return;
+            }
+        } else {
+            // Create temporary file
+            scriptPath = (fs::temp_directory_path() / "minipythonide_run.py").string();
+            std::ofstream outFile(scriptPath);
+            if (outFile) {
+                outFile << code;
+                outFile.close();
+                console.AddLog("[info] Using temporary file: %s\n", scriptPath.c_str());
+            } else {
+                console.AddLog("[error] Failed to create temporary file\n");
+                return;
+            }
+        }
+        
+        // Launch pkpy without --debug flag, with output piping
+        console.AddLog("[info] Running: pkpy %s\n", scriptPath.c_str());
+        
+        const char* args[] = {
+            "pkpy",
+            scriptPath.c_str(),
+            nullptr
+        };
+        
+        // Create process with stdout/stderr piping
+        SDL_Process* process = SDL_CreateProcess(args, true);
+        if (!process) {
+            console.AddLog("[error] Failed to launch pkpy: %s\n", SDL_GetError());
+            return;
+        }
+        
+        // Read output from process
+        char buffer[4096];
+        bool has_output = false;
+        
+        size_t bytes_read = 0;
+        void* stream_data = SDL_ReadProcess(process, &bytes_read, nullptr);
+        
+        while (stream_data && bytes_read > 0) {
+            // Copy to buffer and ensure null termination
+            size_t copy_size = (bytes_read < sizeof(buffer) - 1) ? bytes_read : sizeof(buffer) - 1;
+            memcpy(buffer, stream_data, copy_size);
+            buffer[copy_size] = '\0';
+            
+            console.AddLog("%s", buffer);
+            has_output = true;
+            
+            SDL_free(stream_data);
+            
+            // Continue reading
+            stream_data = SDL_ReadProcess(process, &bytes_read, nullptr);
+        }
+        
+        if (stream_data) {
+            SDL_free(stream_data);
+        }
+        
+        // Wait for process to complete
+        int exit_code = 0;
+        SDL_WaitProcess(process, true, &exit_code);
+        SDL_DestroyProcess(process);
+        
+        if (exit_code == 0) {
+            if (!has_output) {
+                console.AddLog("[info] Script completed successfully (no output)\n");
+            }
+        } else {
+            console.AddLog("[error] Script exited with code %d\n", exit_code);
+        }
+        
+        show_console_window = true;
+    };
+    
     // Init pocket.py
     py_initialize();
     
@@ -481,23 +574,12 @@ int main(int, char**)
 #endif
                 if (ImGui::MenuItem("Run Script", "F5", false, canRun))
                 {
-                    // Reset VM 0 to have a clean state for each run
-                    console.AddLog("[info] Resetting Python VM...\n");
-                    py_resetvm();
-                    setupPythonVM();
-                    
                     std::string code = editor.GetText();
                     auto currentFile = editor.GetCurrentFile();
-                    std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+                    std::string filename = currentFile.empty() ? "<editor>" : currentFile.string();
                     
-                    if (py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
-                        console.AddLog("Script executed successfully.\n");
-                    } else {
-                        char* exc_msg = py_formatexc();
-                        console.AddLog("[error] %s", exc_msg);
-                        py_free(exc_msg);
-                        py_clearexc(NULL);
-                    }
+                    // Run script via pkpy process with output capture
+                    runScriptViaProcess(code, filename);
                 }
                 
                 ImGui::Separator();
@@ -590,7 +672,7 @@ int main(int, char**)
             debugger.Start(code, filename, logCallback);
         }
         
-        // F5 - Continue (when debugging) or Run Script (when not debugging)
+        // F5 - Continue (when debugging) or Run Script via pkpy process (when not debugging)
         if (ImGui::IsKeyPressed(ImGuiKey_F5))
         {
             if (debugger.IsDebugging() && debugger.IsPaused())
@@ -599,25 +681,12 @@ int main(int, char**)
             }
             else if (!debugger.IsDebugging())
             {
-                // Reset VM 0 to have a clean state for each run
-                console.AddLog("[info] Resetting Python VM...\n");
-                py_resetvm();
-                setupPythonVM();
-                
                 std::string code = editor.GetText();
                 auto currentFile = editor.GetCurrentFile();
-                std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+                std::string filename = currentFile.empty() ? "<editor>" : currentFile.string();
                 
-                if (py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
-                    console.AddLog("Script executed successfully.\n");
-                    show_console_window = true;  // Auto-show console when running
-                } else {
-                    char* exc_msg = py_formatexc();
-                    console.AddLog("[error] %s", exc_msg);
-                    py_free(exc_msg);
-                    py_clearexc(NULL);
-                    show_console_window = true;
-                }
+                // Run script via pkpy process with output capture
+                runScriptViaProcess(code, filename);
             }
         }
         
@@ -646,25 +715,12 @@ int main(int, char**)
         // F5 - Run Script (when debugger not enabled)
         if (ImGui::IsKeyPressed(ImGuiKey_F5))
         {
-            // Reset VM 0 to have a clean state for each run
-            console.AddLog("[info] Resetting Python VM...\n");
-            py_resetvm();
-            setupPythonVM();
-            
             std::string code = editor.GetText();
             auto currentFile = editor.GetCurrentFile();
-            std::string filename = currentFile.empty() ? "<string>" : currentFile.string();
+            std::string filename = currentFile.empty() ? "<editor>" : currentFile.string();
             
-            if (py_exec(code.c_str(), filename.c_str(), EXEC_MODE, NULL)) {
-                console.AddLog("Script executed successfully.\n");
-                show_console_window = true;  // Auto-show console when running
-            } else {
-                char* exc_msg = py_formatexc();
-                console.AddLog("[error] %s", exc_msg);
-                py_free(exc_msg);
-                py_clearexc(NULL);
-                show_console_window = true;
-            }
+            // Run script via pkpy process with output capture
+            runScriptViaProcess(code, filename);
         }
 #endif
         

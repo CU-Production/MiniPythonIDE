@@ -45,9 +45,10 @@ set(MINIPYTHONIDE_SOURCES
 # Add debugger sources if enabled
 if(ENABLE_DEBUGGER)
     list(APPEND MINIPYTHONIDE_SOURCES
+        src/ide/dap_client.cpp
+        src/ide/dap_client.h
         src/ide/debugger.cpp
-        src/ide/debugger.h
-        src/ide/pocketpy_debugger_internal.h)
+        src/ide/debugger.h)
 endif()
 
 add_executable(MiniPythonIDE ${MINIPYTHONIDE_SOURCES})
@@ -56,7 +57,8 @@ target_include_directories(MiniPythonIDE PRIVATE
         3rd_party/imgui
         3rd_party/ImGuiColorTextEdit
         3rd_party/pocketpy
-        3rd_party/tinyfiledialogs)
+        3rd_party/tinyfiledialogs
+        3rd_party/nlohmann)
 
 # PocketPy threading is now enabled with C11 atomics support
 if(MSVC)
