@@ -432,9 +432,6 @@ void Debugger::UpdateDebugInfo() {
         return;
     }
     
-    // Give more time for async DAP responses to arrive
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    
     // Get stack frames from DAP client (already requested in stopped event)
     const auto& dapFrames = m_dapClient->GetStackFrames();
     m_stackFrames.clear();
@@ -450,22 +447,46 @@ void Debugger::UpdateDebugInfo() {
         m_logCallback("[debug] Stack frames: " + std::to_string(m_stackFrames.size()) + "\n");
     }
     
-    // Get variables from DAP client (already requested via scopes)
-    const auto& dapLocals = m_dapClient->GetLocalVariables();
-    const auto& dapGlobals = m_dapClient->GetGlobalVariables();
+    // Wait for async variable requests to complete with retry
+    // The chain is: Scopes (10ms) -> Variables (10ms + 50ms) + network time
+    const int maxRetries = 10;
+    const int retryDelayMs = 100;
     
-    if (m_logCallback) {
-        m_logCallback("[debug] DAP locals: " + std::to_string(dapLocals.size()) + 
-                     ", globals: " + std::to_string(dapGlobals.size()) + "\n");
+    for (int retry = 0; retry < maxRetries; retry++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
+        
+        // Get variables from DAP client
+        const auto& dapLocals = m_dapClient->GetLocalVariables();
+        const auto& dapGlobals = m_dapClient->GetGlobalVariables();
+        
+        // If we got variables, break early
+        if (!dapLocals.empty() || !dapGlobals.empty()) {
+            if (m_logCallback) {
+                m_logCallback("[debug] DAP locals: " + std::to_string(dapLocals.size()) + 
+                             ", globals: " + std::to_string(dapGlobals.size()) + 
+                             " (after " + std::to_string((retry + 1) * retryDelayMs) + "ms)\n");
+            }
+            
+            ConvertDAPVariables(dapLocals, m_localVariables);
+            ConvertDAPVariables(dapGlobals, m_globalVariables);
+            
+            if (m_logCallback) {
+                m_logCallback("[debug] Converted locals: " + std::to_string(m_localVariables.size()) + 
+                             ", globals: " + std::to_string(m_globalVariables.size()) + "\n");
+            }
+            return;
+        }
     }
     
-    ConvertDAPVariables(dapLocals, m_localVariables);
-    ConvertDAPVariables(dapGlobals, m_globalVariables);
-    
+    // If we get here, no variables were received even after retries
     if (m_logCallback) {
-        m_logCallback("[debug] Converted locals: " + std::to_string(m_localVariables.size()) + 
-                     ", globals: " + std::to_string(m_globalVariables.size()) + "\n");
+        m_logCallback("[warning] No variables received after " + 
+                     std::to_string(maxRetries * retryDelayMs) + "ms\n");
     }
+    
+    // Still convert empty variables to clear previous state
+    m_localVariables.clear();
+    m_globalVariables.clear();
 }
 
 void Debugger::ConvertDAPVariables(const std::vector<DAPVariable>& dapVars, std::vector<DebugVariable>& outVars) {

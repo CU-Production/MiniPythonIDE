@@ -75,6 +75,9 @@ public:
     bool Variables(int variablesReference);
     bool Evaluate(const std::string& expression, int frameId = 0);
     
+    // Request to expand child variables (for UI interaction)
+    bool ExpandVariable(int variablesReference);
+    
     // Disconnect and terminate
     bool DisconnectRequest();
     bool Terminate();
@@ -115,6 +118,7 @@ private:
     void RequestScopes(int frameId);
     void RequestVariables(int variablesReference, bool isLocal);
     void ParseVariables(const json& variables, std::vector<DAPVariable>& outVars);
+    void UpdateVariableChildren(int variablesReference, const std::vector<DAPVariable>& children);
     
     int m_socket;
     std::atomic<bool> m_connected;
@@ -138,6 +142,10 @@ private:
     std::vector<DAPVariable> m_localVariables;
     std::vector<DAPVariable> m_globalVariables;
     std::map<int, std::vector<DAPVariable>> m_variablesCache;
+    
+    // Track which variablesReference belongs to which scope
+    int m_localScopeRef;
+    int m_globalScopeRef;
 };
 
 #endif // ENABLE_DEBUGGER

@@ -849,27 +849,80 @@ int main(int, char**)
 
 #ifdef ENABLE_DEBUGGER
 
-        // Simple helper to render one variable row
-        auto renderVariableRow = [](const DebugVariable& var, int idx) {
+        // Recursive helper to render variable rows with children
+        std::function<void(const DebugVariable&, int, int)> renderVariableRow;
+        renderVariableRow = [&renderVariableRow](const DebugVariable& var, int idx, int depth) {
             ImGui::PushID(idx);
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                
-            // Variable name
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            
+            // Indentation for nested variables
+            for (int i = 0; i < depth; i++) {
+                ImGui::Indent(16.0f);
+            }
+            
+            // Variable name with expand/collapse button if it has children
             std::string displayName = var.name.empty() ? "<unnamed>" : var.name;
-            ImGui::Text("%s", displayName.c_str());
+            bool hasChildren = var.has_children || !var.children.empty();
             
-            // Value column
+            if (hasChildren) {
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth;
+                if (var.children.empty() && !var.children_loaded) {
+                    flags |= ImGuiTreeNodeFlags_Leaf;  // Show as expandable but not expanded yet
+                }
+                
+                bool isOpen = ImGui::TreeNodeEx(displayName.c_str(), flags);
+                
+                // If expanded and children not loaded yet, request them
+                // Note: This requires access to debugger/dapClient, which we'll handle separately
+                
+                if (isOpen) {
+                    // Show value and type in same row
                     ImGui::TableNextColumn();
-            ImGui::TextWrapped("%s", var.value.c_str());
-            
-            // Type column
+                    ImGui::TextWrapped("%s", var.value.c_str());
+                    
                     ImGui::TableNextColumn();
-            if (!var.type.empty()) {
-                ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
+                    if (!var.type.empty()) {
+                        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
                     }
+                    
+                    // Render children recursively
+                    for (size_t i = 0; i < var.children.size(); i++) {
+                        renderVariableRow(var.children[i], (int)(idx * 1000 + i), depth + 1);
+                    }
+                    
+                    ImGui::TreePop();
+                }
+                else {
+                    // Collapsed state - still show value and type
+                    ImGui::TableNextColumn();
+                    ImGui::TextWrapped("%s", var.value.c_str());
+                    
+                    ImGui::TableNextColumn();
+                    if (!var.type.empty()) {
+                        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
+                    }
+                }
+            }
+            else {
+                // Simple variable without children
+                ImGui::Text("%s", displayName.c_str());
+                
+                ImGui::TableNextColumn();
+                ImGui::TextWrapped("%s", var.value.c_str());
+                
+                ImGui::TableNextColumn();
+                if (!var.type.empty()) {
+                    ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
+                }
+            }
             
-                ImGui::PopID();
+            // Undo indentation
+            for (int i = 0; i < depth; i++) {
+                ImGui::Unindent(16.0f);
+            }
+            
+            ImGui::PopID();
         };
 
         // Variables Window
@@ -899,7 +952,7 @@ int main(int, char**)
                             
                             for (size_t i = 0; i < locals.size(); i++)
                             {
-                                renderVariableRow(locals[i], (int)i);
+                                renderVariableRow(locals[i], (int)i, 0);
                             }
                             ImGui::EndTable();
                         }
@@ -928,7 +981,7 @@ int main(int, char**)
                             
                             for (size_t i = 0; i < globals.size(); i++)
                             {
-                                renderVariableRow(globals[i], (int)(i + 10000)); // offset to avoid ID collision
+                                renderVariableRow(globals[i], (int)(i + 10000), 0); // offset to avoid ID collision
                             }
                             ImGui::EndTable();
                         }
