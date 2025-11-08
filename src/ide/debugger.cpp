@@ -108,6 +108,10 @@ bool Debugger::Start(const std::string& code, const std::string& filename,
         return false;
     }
     
+    // Register process for cleanup on exit
+    extern void RegisterProcess(SDL_Process* process);
+    RegisterProcess(m_process);
+    
     // Create DAP client and setup callbacks first
     m_dapClient = std::make_unique<DAPClient>();
     
@@ -221,6 +225,10 @@ void Debugger::Stop() {
         SDL_KillProcess(m_process, true);
         int exitCode = 0;
         SDL_WaitProcess(m_process, true, &exitCode);
+        
+        // Unregister and destroy process
+        extern void UnregisterProcess(SDL_Process* process);
+        UnregisterProcess(m_process);
         SDL_DestroyProcess(m_process);
         m_process = nullptr;
     }

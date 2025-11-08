@@ -20,6 +20,8 @@ using json = nlohmann::json;
 
 #include <sstream>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 DAPClient::DAPClient()
     : m_socket(-1)
@@ -38,7 +40,29 @@ DAPClient::DAPClient()
 }
 
 DAPClient::~DAPClient() {
+    // Ensure disconnection
     Disconnect();
+    
+    // CRITICAL: Ensure thread is joined even if Disconnect() was already called
+    // This prevents std::terminate() when thread is still joinable
+    if (m_receiveThread.joinable()) {
+        // If thread is still running, force it to stop
+        m_connected.store(false);
+        
+        // Give it a moment to exit
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Join or detach to avoid terminate()
+        if (m_receiveThread.joinable()) {
+            try {
+                m_receiveThread.join();
+            } catch (...) {
+                // If join fails, detach to prevent terminate()
+                m_receiveThread.detach();
+            }
+        }
+    }
+    
 #ifdef _WIN32
     WSACleanup();
 #endif
@@ -84,17 +108,27 @@ bool DAPClient::Connect(const std::string& host, int port) {
 }
 
 void DAPClient::Disconnect() {
-    if (!m_connected.load()) {
-        return;
-    }
+    // Always set connected to false, even if already disconnected
+    bool wasConnected = m_connected.exchange(false);
     
-    m_connected.store(false);
-    
+    // Shutdown and close socket to unblock recv()
     if (m_socket >= 0) {
+        // Shutdown both directions to unblock any recv/send calls
+#ifdef _WIN32
+        shutdown(m_socket, SD_BOTH);
+#else
+        shutdown(m_socket, SHUT_RDWR);
+#endif
+        
+        // Small delay to let recv() return
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        
         close(m_socket);
         m_socket = -1;
     }
     
+    // Always wait for receive thread to finish, even if wasConnected was false
+    // This is crucial for preventing crashes during destruction
     if (m_receiveThread.joinable()) {
         m_receiveThread.join();
     }

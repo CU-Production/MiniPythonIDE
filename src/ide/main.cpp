@@ -194,6 +194,41 @@ static ExampleAppConsole console;
 static Debugger debugger;
 #endif
 
+// Global process tracking for cleanup on exit
+static std::vector<SDL_Process*> g_runningProcesses;
+static std::mutex g_processesMutex;
+
+// Helper to register a process for cleanup
+void RegisterProcess(SDL_Process* process) {
+    if (process) {
+        std::lock_guard<std::mutex> lock(g_processesMutex);
+        g_runningProcesses.push_back(process);
+    }
+}
+
+// Helper to unregister a process
+void UnregisterProcess(SDL_Process* process) {
+    if (process) {
+        std::lock_guard<std::mutex> lock(g_processesMutex);
+        auto it = std::find(g_runningProcesses.begin(), g_runningProcesses.end(), process);
+        if (it != g_runningProcesses.end()) {
+            g_runningProcesses.erase(it);
+        }
+    }
+}
+
+// Cleanup all running processes on exit
+static void CleanupAllProcesses() {
+    std::lock_guard<std::mutex> lock(g_processesMutex);
+    for (SDL_Process* proc : g_runningProcesses) {
+        if (proc) {
+            SDL_KillProcess(proc, true);
+            SDL_DestroyProcess(proc);
+        }
+    }
+    g_runningProcesses.clear();
+}
+
 // Main code
 int main(int, char**)
 {
@@ -388,6 +423,9 @@ int main(int, char**)
             return;
         }
         
+        // Register process for cleanup on exit
+        RegisterProcess(process);
+        
         // Read output from process
         char buffer[4096];
         bool has_output = false;
@@ -417,6 +455,9 @@ int main(int, char**)
         // Wait for process to complete
         int exit_code = 0;
         SDL_WaitProcess(process, true, &exit_code);
+        
+        // Unregister and destroy process
+        UnregisterProcess(process);
         SDL_DestroyProcess(process);
         
         if (exit_code == 0) {
@@ -1200,6 +1241,9 @@ int main(int, char**)
         debugger.Stop();
     }
 #endif
+    
+    // Kill all remaining pkpy processes before exit
+    CleanupAllProcesses();
     
     py_finalize();
 
