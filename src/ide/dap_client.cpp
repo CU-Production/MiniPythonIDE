@@ -296,6 +296,15 @@ void DAPClient::ProcessEvent(const std::string& event, const json& body) {
         m_currentLine = -1;
         m_currentFile = "";
         
+        // Clear old variables before requesting new ones
+        m_localVariables.clear();
+        m_globalVariables.clear();
+        m_variablesCache.clear();
+        m_localScopeRef = -1;
+        m_globalScopeRef = -1;
+        
+        std::cout << "[DAP] Stopped event received, cleared old variables" << std::endl;
+        
         // Request stack trace to get current location
         StackTrace(m_currentThreadId);
     } else if (event == "continued") {
@@ -473,7 +482,13 @@ bool DAPClient::StackTrace(int threadId) {
                 int topFrameId = m_stackFrames[0].id;
                 std::thread([this, topFrameId]() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    Scopes(topFrameId);
+                    
+                    // Check if still connected and stopped before requesting
+                    if (m_connected.load() && m_stopped.load()) {
+                        Scopes(topFrameId);
+                    } else {
+                        std::cout << "[DAP] Skipping scopes request (disconnected or not stopped)" << std::endl;
+                    }
                 }).detach();
             }
         };
@@ -548,7 +563,12 @@ bool DAPClient::Scopes(int frameId) {
             if (m_localScopeRef > 0) {
                 std::thread([this, localRef = m_localScopeRef]() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    Variables(localRef);
+                    
+                    if (m_connected.load() && m_stopped.load()) {
+                        Variables(localRef);
+                    } else {
+                        std::cout << "[DAP] Skipping local variables request" << std::endl;
+                    }
                 }).detach();
             }
             
@@ -556,7 +576,12 @@ bool DAPClient::Scopes(int frameId) {
             if (m_globalScopeRef > 0) {
                 std::thread([this, globalRef = m_globalScopeRef]() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                    Variables(globalRef);
+                    
+                    if (m_connected.load() && m_stopped.load()) {
+                        Variables(globalRef);
+                    } else {
+                        std::cout << "[DAP] Skipping global variables request" << std::endl;
+                    }
                 }).detach();
             }
         };

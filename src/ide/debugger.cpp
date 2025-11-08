@@ -112,6 +112,9 @@ bool Debugger::Start(const std::string& code, const std::string& filename,
     extern void RegisterProcess(SDL_Process* process);
     RegisterProcess(m_process);
     
+    // Set debugging flag early so callbacks work correctly
+    m_debugging.store(true);
+    
     // Create DAP client and setup callbacks first
     m_dapClient = std::make_unique<DAPClient>();
     
@@ -194,10 +197,8 @@ bool Debugger::Start(const std::string& code, const std::string& filename,
     // Wait for initialized event (will be handled in callback)
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
     
-    m_debugging.store(true);
-    
     if (m_logCallback) {
-        m_logCallback("[info] Debugger started successfully\n");
+        m_logCallback("[info] Debugger initialization complete\n");
     }
     
     return true;
@@ -382,8 +383,13 @@ void Debugger::OnDAPStopped(const std::string& reason, int threadId, const std::
         m_logCallback(msg.str());
     }
     
-    // Request stack trace and variables
-    UpdateDebugInfo();
+    // Update debug info asynchronously to avoid blocking the receive thread
+    // This gives time for scopes and variables requests to complete
+    std::thread([this]() {
+        // Wait a bit for the async scopes/variables chain to complete
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        UpdateDebugInfo();
+    }).detach();
 }
 
 void Debugger::OnDAPContinued(int threadId) {
@@ -432,6 +438,10 @@ void Debugger::UpdateDebugInfo() {
         return;
     }
     
+    // Clear old variables immediately to prevent UI from showing stale data
+    m_localVariables.clear();
+    m_globalVariables.clear();
+    
     // Get stack frames from DAP client (already requested in stopped event)
     const auto& dapFrames = m_dapClient->GetStackFrames();
     m_stackFrames.clear();
@@ -448,9 +458,10 @@ void Debugger::UpdateDebugInfo() {
     }
     
     // Wait for async variable requests to complete with retry
-    // The chain is: Scopes (10ms) -> Variables (10ms + 50ms) + network time
-    const int maxRetries = 10;
-    const int retryDelayMs = 100;
+    // Note: We already waited 200ms in OnDAPStopped before calling this
+    // So variables should be ready or arriving soon
+    const int maxRetries = 5;   // Reduced since we pre-waited
+    const int retryDelayMs = 20; // Quick checks
     
     for (int retry = 0; retry < maxRetries; retry++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
@@ -480,13 +491,11 @@ void Debugger::UpdateDebugInfo() {
     
     // If we get here, no variables were received even after retries
     if (m_logCallback) {
-        m_logCallback("[warning] No variables received after " + 
-                     std::to_string(maxRetries * retryDelayMs) + "ms\n");
+        m_logCallback("[warning] No variables received (waited ~" + 
+                     std::to_string(200 + maxRetries * retryDelayMs) + "ms total)\n");
     }
     
-    // Still convert empty variables to clear previous state
-    m_localVariables.clear();
-    m_globalVariables.clear();
+    // Variables were already cleared at the start, so UI will show empty list
 }
 
 void Debugger::ConvertDAPVariables(const std::vector<DAPVariable>& dapVars, std::vector<DebugVariable>& outVars) {
