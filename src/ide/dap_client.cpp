@@ -145,12 +145,13 @@ void DAPClient::ReceiveThread() {
             }
             break;
         }
-        
+
+        json msg = json::parse(message);
         try {
-            json msg = json::parse(message);
             ProcessMessage(msg);
         } catch (const std::exception& e) {
             std::cerr << "Error parsing message: " << e.what() << std::endl;
+            std::cerr << "Json string : " << msg.dump() << std::endl;
         }
     }
 }
@@ -288,51 +289,12 @@ void DAPClient::ProcessEvent(const std::string& event, const json& body) {
         m_stoppedReason = body.value("reason", "");
         m_currentThreadId = body.value("threadId", 0);
         
+        // Reset current line so stackTrace will update it
+        m_currentLine = -1;
+        m_currentFile = "";
+        
         // Request stack trace to get current location
-        // The stopped event doesn't include file/line info directly
-        json stackTraceArgs = {
-            {"threadId", m_currentThreadId},
-            {"startFrame", 0},
-            {"levels", 1}  // Only get top frame
-        };
-        
-        // Send stackTrace request and handle response
-        int seq = m_nextSeq++;
-        {
-            std::lock_guard<std::mutex> lock(m_requestMutex);
-            m_pendingRequests[seq] = [this](const json& response) {
-                if (response.contains("body") && response["body"].contains("stackFrames")) {
-                    auto& frames = response["body"]["stackFrames"];
-                    if (!frames.empty()) {
-                        auto& frame = frames[0];
-                        
-                        // Extract line number
-                        if (frame.contains("line")) {
-                            m_currentLine = frame["line"];
-                        }
-                        
-                        // Extract file path
-                        if (frame.contains("source") && frame["source"].contains("path")) {
-                            m_currentFile = frame["source"]["path"];
-                        }
-                    }
-                }
-                
-                // Now trigger the OnStopped callback with correct info
-                if (OnStopped) {
-                    OnStopped(m_stoppedReason, m_currentThreadId, m_currentFile, m_currentLine);
-                }
-            };
-        }
-        
-        json msg = {
-            {"seq", seq},
-            {"type", "request"},
-            {"command", "stackTrace"},
-            {"arguments", stackTraceArgs}
-        };
-        
-        SendDAPMessage(msg);
+        StackTrace(m_currentThreadId);
     } else if (event == "continued") {
         m_stopped.store(false);
         if (OnContinued) {
@@ -461,10 +423,68 @@ bool DAPClient::StackTrace(int threadId) {
     if (threadId == 0) threadId = m_currentThreadId;
     
     json args = {
-        {"threadId", threadId}
+        {"threadId", threadId},
+        {"startFrame", 0},
+        {"levels", 20}
     };
     
-    return SendRequestInternal("stackTrace", args);
+    int seq;
+    {
+        std::lock_guard<std::mutex> lock(m_requestMutex);
+        seq = m_nextSeq++;
+        m_pendingRequests[seq] = [this](const json& response) {
+            m_stackFrames.clear();
+            
+            if (response.contains("body") && response["body"].contains("stackFrames")) {
+                auto& frames = response["body"]["stackFrames"];
+                
+                for (const auto& frame : frames) {
+                    DAPStackFrame dapFrame;
+                    dapFrame.id = frame.value("id", -1);
+                    dapFrame.name = frame.value("name", "");
+                    dapFrame.line = frame.value("line", -1);
+                    dapFrame.column = frame.value("column", 0);
+                    
+                    if (frame.contains("source") && frame["source"].contains("path")) {
+                        dapFrame.source = frame["source"]["path"];
+                    }
+                    
+                    m_stackFrames.push_back(dapFrame);
+                    
+                    // Always update current location from top frame (first frame)
+                    if (m_stackFrames.size() == 1 && !dapFrame.source.empty()) {
+                        m_currentLine = dapFrame.line;
+                        m_currentFile = dapFrame.source;
+                        m_currentFrameId = dapFrame.id;
+                    }
+                }
+            }
+            
+            // After getting stack frames, trigger OnStopped callback
+            if (OnStopped) {
+                OnStopped(m_stoppedReason, m_currentThreadId, m_currentFile, m_currentLine);
+            }
+            
+            // Request scopes in a separate thread to avoid deadlock
+            if (!m_stackFrames.empty() && m_stackFrames[0].id >= 0) {
+                int topFrameId = m_stackFrames[0].id;
+                std::thread([this, topFrameId]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    Scopes(topFrameId);
+                }).detach();
+            }
+        };
+    }
+    
+    json msg = {
+        {"seq", seq},
+        {"type", "request"},
+        {"command", "stackTrace"},
+        {"arguments", args}
+    };
+    
+    SendDAPMessage(msg);
+    return true;
 }
 
 bool DAPClient::Scopes(int frameId) {
@@ -472,7 +492,43 @@ bool DAPClient::Scopes(int frameId) {
         {"frameId", frameId}
     };
     
-    return SendRequestInternal("scopes", args);
+    int seq;
+    {
+        std::lock_guard<std::mutex> lock(m_requestMutex);
+        seq = m_nextSeq++;
+        m_pendingRequests[seq] = [this](const json& response) {
+            if (!response.contains("body") || !response["body"].contains("scopes")) {
+                return;
+            }
+            
+            auto& scopes = response["body"]["scopes"];
+            
+            // Find local scopes and request variables in a separate thread
+            for (const auto& scope : scopes) {
+                std::string name = scope.value("name", "");
+                int varRef = scope.value("variablesReference", -1);
+                
+                if (varRef > 0 && (name == "Locals" || name == "Local")) {
+                    // Request variables in a separate thread to avoid deadlock
+                    std::thread([this, varRef]() {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                        Variables(varRef);
+                    }).detach();
+                    break;
+                }
+            }
+        };
+    }
+    
+    json msg = {
+        {"seq", seq},
+        {"type", "request"},
+        {"command", "scopes"},
+        {"arguments", args}
+    };
+    
+    SendDAPMessage(msg);
+    return true;
 }
 
 bool DAPClient::Variables(int variablesReference) {
@@ -480,7 +536,32 @@ bool DAPClient::Variables(int variablesReference) {
         {"variablesReference", variablesReference}
     };
     
-    return SendRequestInternal("variables", args);
+    int seq;
+    {
+        std::lock_guard<std::mutex> lock(m_requestMutex);
+        seq = m_nextSeq++;
+        m_pendingRequests[seq] = [this](const json& response) {
+            if (!response.contains("body") || !response["body"].contains("variables")) {
+                return;
+            }
+            
+            auto& variables = response["body"]["variables"];
+            
+            // For now, just put everything in local variables
+            // TODO: distinguish between local and global based on scope
+            ParseVariables(variables, m_localVariables);
+        };
+    }
+    
+    json msg = {
+        {"seq", seq},
+        {"type", "request"},
+        {"command", "variables"},
+        {"arguments", args}
+    };
+    
+    SendDAPMessage(msg);
+    return true;
 }
 
 bool DAPClient::Evaluate(const std::string& expression, int frameId) {
@@ -504,6 +585,21 @@ bool DAPClient::DisconnectRequest() {
 
 bool DAPClient::Terminate() {
     return SendRequestInternal("terminate");
+}
+
+void DAPClient::ParseVariables(const json& variables, std::vector<DAPVariable>& outVars) {
+    outVars.clear();
+    
+    for (const auto& var : variables) {
+        DAPVariable dapVar;
+        dapVar.name = var.value("name", "");
+        dapVar.value = var.value("value", "");
+        dapVar.type = var.value("type", "");
+        dapVar.variablesReference = var.value("variablesReference", 0);
+        dapVar.hasChildren = (dapVar.variablesReference > 0);
+        
+        outVars.push_back(dapVar);
+    }
 }
 
 #endif // ENABLE_DEBUGGER

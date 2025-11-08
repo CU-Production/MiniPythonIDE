@@ -111,6 +111,11 @@ private:
     bool SendDAPMessage(const json& msg);
     std::string ReadMessage();
     
+    // Helper methods for automatic variable fetching
+    void RequestScopes(int frameId);
+    void RequestVariables(int variablesReference, bool isLocal);
+    void ParseVariables(const json& variables, std::vector<DAPVariable>& outVars);
+    
     int m_socket;
     std::atomic<bool> m_connected;
     std::atomic<bool> m_initialized;

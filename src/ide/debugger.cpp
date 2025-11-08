@@ -432,24 +432,26 @@ void Debugger::UpdateDebugInfo() {
         return;
     }
     
-    // Request stack trace
-    m_dapClient->StackTrace();
+    // Give some time for async DAP responses to arrive
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
-    // TODO: Wait for response and parse stack frames
-    // For now, we'll create a simple stack frame from current location
+    // Get stack frames from DAP client (already requested in stopped event)
+    const auto& dapFrames = m_dapClient->GetStackFrames();
     m_stackFrames.clear();
-    if (!m_currentFile.empty() && m_currentLine > 0) {
+    for (const auto& dapFrame : dapFrames) {
         DebugStackFrame frame;
-        frame.filename = m_currentFile;
-        frame.lineno = m_currentLine;
-        frame.function_name = "<module>";
+        frame.filename = dapFrame.source;
+        frame.lineno = dapFrame.line;
+        frame.function_name = dapFrame.name;
         m_stackFrames.push_back(frame);
     }
     
-    // TODO: Request scopes and variables
-    // For now, clear variables
-    m_localVariables.clear();
-    m_globalVariables.clear();
+    // Get variables from DAP client (already requested via scopes)
+    const auto& dapLocals = m_dapClient->GetLocalVariables();
+    const auto& dapGlobals = m_dapClient->GetGlobalVariables();
+    
+    ConvertDAPVariables(dapLocals, m_localVariables);
+    ConvertDAPVariables(dapGlobals, m_globalVariables);
 }
 
 void Debugger::ConvertDAPVariables(const std::vector<DAPVariable>& dapVars, std::vector<DebugVariable>& outVars) {

@@ -849,85 +849,27 @@ int main(int, char**)
 
 #ifdef ENABLE_DEBUGGER
 
-        // Helper lambda to render variable tree recursively
-        auto renderVariableTree = [](const DebugVariable& var, int depth = 0) {
-            auto renderVariableTreeImpl = [](const DebugVariable& var, int depth, auto& self_ref) -> void {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                
-                // Check if expandable
-                bool is_expandable = var.has_children && !var.children.empty();
-                
-                ImGui::PushID((var.name + std::to_string(depth)).c_str());
-                if (is_expandable)
-                {
-                    // Show tree node for expandable types
-                    ImGui::AlignTextToFramePadding();
-                    bool node_open = ImGui::TreeNodeEx("##tree", ImGuiTreeNodeFlags_SpanFullWidth);
-                    ImGui::SameLine();
-                    ImGui::Text("%s", var.name.c_str());
-                    // Show tooltip on hover for name
-                    if (ImGui::IsItemHovered())
-                    {
-                        ImGui::SetTooltip("%s", var.name.c_str());
-                    }
-                    
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%s", var.value.c_str());
-                    // Show tooltip on hover for value
-                    if (ImGui::IsItemHovered())
-                    {
-                        ImGui::SetTooltip("%s", var.value.c_str());
-                    }
-                    
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%s", var.type.c_str());
-                    // Show tooltip on hover for type
-                    if (ImGui::IsItemHovered())
-                    {
-                        ImGui::SetTooltip("%s", var.type.c_str());
-                    }
-                    
-                    if (node_open)
-                    {
-                        // Show children
-                        for (const auto& child : var.children)
-                        {
-                            self_ref(child, depth + 1, self_ref);
-                        }
-                        ImGui::TreePop();
-                    }
-                }
-                else
-                {
-                    // Simple text for non-expandable types
-                    ImGui::Text("%s", var.name.c_str());
-                    // Show tooltip on hover for name
-                    if (ImGui::IsItemHovered())
-                    {
-                        ImGui::SetTooltip("%s", var.name.c_str());
-                    }
-                    
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%s", var.value.c_str());
-                    // Show tooltip on hover for value
-                    if (ImGui::IsItemHovered())
-                    {
-                        ImGui::SetTooltip("%s", var.value.c_str());
-                    }
-                    
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%s", var.type.c_str());
-                    // Show tooltip on hover for type
-                    if (ImGui::IsItemHovered())
-                    {
-                        ImGui::SetTooltip("%s", var.type.c_str());
-                    }
-                }
-                ImGui::PopID();
-            };
+        // Simple helper to render one variable row
+        auto renderVariableRow = [](const DebugVariable& var, int idx) {
+            ImGui::PushID(idx);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
             
-            renderVariableTreeImpl(var, depth, renderVariableTreeImpl);
+            // Variable name
+            std::string displayName = var.name.empty() ? "<unnamed>" : var.name;
+            ImGui::Text("%s", displayName.c_str());
+            
+            // Value column
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", var.value.c_str());
+            
+            // Type column
+            ImGui::TableNextColumn();
+            if (!var.type.empty()) {
+                ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
+            }
+            
+            ImGui::PopID();
         };
 
         // Variables Window
@@ -955,9 +897,9 @@ int main(int, char**)
                             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
                             ImGui::TableHeadersRow();
                             
-                            for (const auto& var : locals)
+                            for (size_t i = 0; i < locals.size(); i++)
                             {
-                                renderVariableTree(var);
+                                renderVariableRow(locals[i], (int)i);
                             }
                             ImGui::EndTable();
                         }
@@ -984,9 +926,9 @@ int main(int, char**)
                             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.2f);
                             ImGui::TableHeadersRow();
                             
-                            for (const auto& var : globals)
+                            for (size_t i = 0; i < globals.size(); i++)
                             {
-                                renderVariableTree(var);
+                                renderVariableRow(globals[i], (int)(i + 10000)); // offset to avoid ID collision
                             }
                             ImGui::EndTable();
                         }
