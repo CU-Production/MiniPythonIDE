@@ -3,7 +3,9 @@
 #include <assert.h>
 #include <string.h>
 
+#define PK_IS_PUBLIC_INCLUDE
 #include "pocketpy.h"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -25,6 +27,27 @@ static char* read_file(const char* path) {
 }
 
 static char buf[2048];
+
+// Test module function (C function pointer)
+static bool test_is_available(int argc, py_StackRef argv) {
+    py_newbool(py_retval(), true);
+    return true;
+}
+
+static bool test_mod_add(int argc, py_StackRef argv) {
+    PY_CHECK_ARGC(2);
+
+    PY_CHECK_ARG_TYPE(0, tp_int);
+    PY_CHECK_ARG_TYPE(1, tp_int);
+
+    int _0 = py_toint(py_arg(0));
+    int _1 = py_toint(py_arg(1));
+
+    int res = _0 + _1;
+
+    py_newint(py_retval(), res);
+    return true;
+}
 
 int main(int argc, char** argv) {
 #if _WIN32
@@ -59,6 +82,23 @@ int main(int argc, char** argv) {
 
     py_initialize();
     py_sys_setargv(argc, argv);
+    
+    // Create simple test module
+    py_GlobalRef test_mod = py_newmodule("test");
+    
+    // Add a version attribute
+    py_newstr(py_r0(), "0.1.0");
+    py_setdict(test_mod, py_name("__version__"), py_r0());
+    
+    // Add a simple function as placeholder
+    py_bindfunc(test_mod, "is_available", test_is_available);
+
+    // Set pi attribute
+    py_newfloat(py_r0(), 3.14);
+    py_setdict(test_mod, py_name("pi"), py_r0());
+
+    // Bind add function
+    py_bindfunc(test_mod, "add", test_mod_add);
 
     if(filename == NULL) {
         if(profile) printf("Warning: --profile is ignored in REPL mode.\n");
