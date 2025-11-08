@@ -849,9 +849,15 @@ int main(int, char**)
 
 #ifdef ENABLE_DEBUGGER
 
+        // Helper to truncate long strings
+        auto truncateValue = [](const std::string& value, size_t maxLen = 100) -> std::string {
+            if (value.length() <= maxLen) return value;
+            return value.substr(0, maxLen) + "...";
+        };
+        
         // Recursive helper to render variable rows with children
         std::function<void(const DebugVariable&, int, int)> renderVariableRow;
-        renderVariableRow = [&renderVariableRow](const DebugVariable& var, int idx, int depth) {
+        renderVariableRow = [&renderVariableRow, &truncateValue](const DebugVariable& var, int idx, int depth) {
             ImGui::PushID(idx);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
@@ -873,22 +879,50 @@ int main(int, char**)
                 
                 bool isOpen = ImGui::TreeNodeEx(displayName.c_str(), flags);
                 
-                // If expanded and children not loaded yet, request them
-                // Note: This requires access to debugger/dapClient, which we'll handle separately
+                // If expanded and children not loaded yet, request them (lazy loading)
+                if (isOpen && var.children.empty() && !var.children_loaded && var.variables_reference > 0) {
+                    debugger.RequestExpandVariable(var.variables_reference);
+                }
                 
                 if (isOpen) {
                     // Show value and type in same row
                     ImGui::TableNextColumn();
-                    ImGui::TextWrapped("%s", var.value.c_str());
+                    
+                    // Truncate long values
+                    std::string displayValue = truncateValue(var.value);
+                    ImGui::TextWrapped("%s", displayValue.c_str());
+                    
+                    // Add hover tooltip for full value if truncated
+                    if (displayValue != var.value && ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+                        ImGui::TextUnformatted(var.value.c_str());
+                        ImGui::PopTextWrapPos();
+                        ImGui::EndTooltip();
+                    }
                     
                     ImGui::TableNextColumn();
                     if (!var.type.empty()) {
                         ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "%s", var.type.c_str());
                     }
                     
-                    // Render children recursively
-                    for (size_t i = 0; i < var.children.size(); i++) {
-                        renderVariableRow(var.children[i], (int)(idx * 1000 + i), depth + 1);
+                    // Show loading indicator or children
+                    if (var.children.empty() && var.variables_reference > 0) {
+                        // Children being loaded
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        for (int i = 0; i <= depth; i++) {
+                            ImGui::Indent(16.0f);
+                        }
+                        ImGui::TextDisabled("Loading...");
+                        for (int i = 0; i <= depth; i++) {
+                            ImGui::Unindent(16.0f);
+                        }
+                    } else {
+                        // Render children recursively
+                        for (size_t i = 0; i < var.children.size(); i++) {
+                            renderVariableRow(var.children[i], (int)(idx * 1000 + i), depth + 1);
+                        }
                     }
                     
                     ImGui::TreePop();
@@ -896,7 +930,18 @@ int main(int, char**)
                 else {
                     // Collapsed state - still show value and type
                     ImGui::TableNextColumn();
-                    ImGui::TextWrapped("%s", var.value.c_str());
+                    
+                    std::string displayValue = truncateValue(var.value);
+                    ImGui::TextWrapped("%s", displayValue.c_str());
+                    
+                    // Hover tooltip
+                    if (displayValue != var.value && ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+                        ImGui::TextUnformatted(var.value.c_str());
+                        ImGui::PopTextWrapPos();
+                        ImGui::EndTooltip();
+                    }
                     
                     ImGui::TableNextColumn();
                     if (!var.type.empty()) {
@@ -909,7 +954,18 @@ int main(int, char**)
                 ImGui::Text("%s", displayName.c_str());
                 
                 ImGui::TableNextColumn();
-                ImGui::TextWrapped("%s", var.value.c_str());
+                
+                std::string displayValue = truncateValue(var.value);
+                ImGui::TextWrapped("%s", displayValue.c_str());
+                
+                // Hover tooltip for full value
+                if (displayValue != var.value && ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+                    ImGui::TextUnformatted(var.value.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
                 
                 ImGui::TableNextColumn();
                 if (!var.type.empty()) {
@@ -930,6 +986,9 @@ int main(int, char**)
         {
             if (ImGui::Begin("Variables", &show_variables_window))
             {
+                // Get variable tree version to reset UI state on each step
+                int treeVersion = debugger.GetVariableTreeVersion();
+                
                 if (ImGui::CollapsingHeader("Local Variables", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     const auto& locals = debugger.GetLocalVariables();
@@ -952,7 +1011,8 @@ int main(int, char**)
                             
                             for (size_t i = 0; i < locals.size(); i++)
                             {
-                                renderVariableRow(locals[i], (int)i, 0);
+                                // Use tree version in ID to force reset on each step
+                                renderVariableRow(locals[i], (int)(treeVersion * 100000 + i), 0);
                             }
                             ImGui::EndTable();
                         }
@@ -981,7 +1041,8 @@ int main(int, char**)
                             
                             for (size_t i = 0; i < globals.size(); i++)
                             {
-                                renderVariableRow(globals[i], (int)(i + 10000), 0); // offset to avoid ID collision
+                                // Use tree version in ID to force reset on each step
+                                renderVariableRow(globals[i], (int)(treeVersion * 100000 + i + 10000), 0);
                             }
                             ImGui::EndTable();
                         }

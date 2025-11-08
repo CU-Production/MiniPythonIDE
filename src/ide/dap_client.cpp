@@ -599,18 +599,34 @@ bool DAPClient::Scopes(int frameId) {
 }
 
 bool DAPClient::Variables(int variablesReference) {
+    // Don't send request if not in a valid stopped state
+    if (!m_connected.load() || !m_stopped.load()) {
+        DAP_LOG("[DAP] Skipping Variables request (not connected or not stopped)");
+        return false;
+    }
+    
     json args = {
         {"variablesReference", variablesReference}
     };
     
     DAP_LOG("[DAP] Requesting variables for ref " << variablesReference);
     
+    // Capture current scope refs to validate response later
+    int currentLocalRef = m_localScopeRef;
+    int currentGlobalRef = m_globalScopeRef;
+    
     int seq;
     {
         std::lock_guard<std::mutex> lock(m_requestMutex);
         seq = m_nextSeq++;
-        m_pendingRequests[seq] = [this, variablesReference](const json& response) {
+        m_pendingRequests[seq] = [this, variablesReference, currentLocalRef, currentGlobalRef](const json& response) {
             DAP_LOG("[DAP] Received variables response for ref " << variablesReference);
+            
+            // Check if still stopped - if user continued or program terminated, ignore response
+            if (!m_stopped.load()) {
+                DAP_LOG("[DAP] Ignoring variables response (no longer stopped)");
+                return;
+            }
             
             if (!response.contains("body")) {
                 DAP_LOG("[DAP] ERROR: No 'body' in variables response");
@@ -626,26 +642,33 @@ bool DAPClient::Variables(int variablesReference) {
             DAP_LOG("[DAP] Found " << variables.size() << " variables for ref " << variablesReference);
             
             // Determine if this is a local or global scope request
-            if (variablesReference == m_localScopeRef) {
-                // This is the local variables scope
+            if (variablesReference == currentLocalRef && variablesReference == m_localScopeRef) {
+                // This is the local variables scope and refs still match
                 DAP_LOG("[DAP] Parsing local variables (ref: " << variablesReference << ")");
                 ParseVariables(variables, m_localVariables);
             } 
-            else if (variablesReference == m_globalScopeRef) {
-                // This is the global variables scope
+            else if (variablesReference == currentGlobalRef && variablesReference == m_globalScopeRef) {
+                // This is the global variables scope and refs still match
                 DAP_LOG("[DAP] Parsing global variables (ref: " << variablesReference << ")");
                 ParseVariables(variables, m_globalVariables);
             }
-            else {
+            else if (variablesReference != currentLocalRef && variablesReference != currentGlobalRef) {
                 // This is a child variable expansion request
-                // Store in cache for later retrieval
-                DAP_LOG("[DAP] Caching child variables (ref: " << variablesReference << ")");
-                std::vector<DAPVariable> childVars;
-                ParseVariables(variables, childVars);
-                m_variablesCache[variablesReference] = childVars;
-                
-                // Update the parent variable's children
-                UpdateVariableChildren(variablesReference, childVars);
+                // Only cache if the scope refs haven't changed (indicating we're in the same stop state)
+                if (m_localScopeRef == currentLocalRef && m_globalScopeRef == currentGlobalRef) {
+                    DAP_LOG("[DAP] Caching child variables (ref: " << variablesReference << ")");
+                    std::vector<DAPVariable> childVars;
+                    ParseVariables(variables, childVars);
+                    m_variablesCache[variablesReference] = childVars;
+                    
+                    // Note: We no longer call UpdateVariableChildren here
+                    // The Debugger layer polls the cache and updates synchronously
+                } else {
+                    DAP_LOG("[DAP] Ignoring stale child variables response (scope refs changed)");
+                }
+            }
+            else {
+                DAP_LOG("[DAP] Ignoring stale variables response (ref mismatch)");
             }
         };
     }
@@ -712,38 +735,7 @@ void DAPClient::ParseVariables(const json& variables, std::vector<DAPVariable>& 
     DAP_LOG("[DAP] Total variables stored: " << outVars.size());
 }
 
-void DAPClient::UpdateVariableChildren(int variablesReference, const std::vector<DAPVariable>& children) {
-    // Helper function to recursively search and update a variable in a vector
-    auto updateInVector = [&children](std::vector<DAPVariable>& vars, int varRef, auto& updateInVector_ref) -> bool {
-        for (auto& var : vars) {
-            if (var.variablesReference == varRef) {
-                var.children = children;
-                DAP_LOG("[DAP] Updated children for variable '" << var.name 
-                         << "' (ref: " << varRef << "), added " << children.size() << " children");
-                return true;
-            }
-            // Recursively search in children
-            if (!var.children.empty()) {
-                if (updateInVector_ref(var.children, varRef, updateInVector_ref)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    };
-    
-    // Try to find and update the variable in local variables
-    if (updateInVector(m_localVariables, variablesReference, updateInVector)) {
-        return;
-    }
-    
-    // Try to find and update the variable in global variables
-    if (updateInVector(m_globalVariables, variablesReference, updateInVector)) {
-        return;
-    }
-    
-    DAP_LOG("[DAP] Warning: Could not find parent variable with ref " << variablesReference);
-}
+// Note: UpdateVariableChildren removed - we now use synchronous polling in Debugger layer
 
 #endif // ENABLE_DEBUGGER
 

@@ -14,6 +14,7 @@ Debugger::Debugger()
     : m_debugging(false)
     , m_paused(false)
     , m_currentLine(-1)
+    , m_variableTreeVersion(0)
     , m_process(nullptr)
 {
 }
@@ -438,6 +439,10 @@ void Debugger::UpdateDebugInfo() {
         return;
     }
     
+    // Increment version to force UI to reset TreeNode states
+    // This prevents ImGui from trying to re-expand variables with old variablesReference
+    m_variableTreeVersion++;
+    
     // Clear old variables immediately to prevent UI from showing stale data
     m_localVariables.clear();
     m_globalVariables.clear();
@@ -507,15 +512,103 @@ void Debugger::ConvertDAPVariables(const std::vector<DAPVariable>& dapVars, std:
         var.value = dapVar.value;
         var.type = dapVar.type;
         var.has_children = dapVar.hasChildren;
-        var.children_loaded = !dapVar.children.empty();
+        var.variables_reference = dapVar.variablesReference;
+        // Important: children_loaded is false initially, even if children exist
+        // This ensures lazy loading works correctly after each step
+        var.children_loaded = false;
+        var.children.clear();  // Ensure no stale children data
         
-        // Recursively convert children
-        if (!dapVar.children.empty()) {
-            ConvertDAPVariables(dapVar.children, var.children);
-        }
+        // Note: We don't copy children here to enforce lazy loading
+        // Children will be loaded on-demand when user expands the variable
         
         outVars.push_back(var);
     }
+}
+
+void Debugger::RequestExpandVariable(int variablesReference) {
+    if (!m_dapClient || !m_dapClient->IsConnected() || !m_dapClient->IsStopped()) {
+        return;
+    }
+    
+    // Capture current tree version to detect if user steps during expansion
+    int currentVersion = m_variableTreeVersion;
+    
+    // Send the request synchronously (blocks UI but acceptable for debugger)
+    if (!m_dapClient->ExpandVariable(variablesReference)) {
+        return;
+    }
+    
+    // Wait for the response with timeout (synchronous polling)
+    const int maxWaitMs = 500;
+    const int pollIntervalMs = 10;
+    int elapsedMs = 0;
+    
+    const auto& cache = m_dapClient->GetVariablesCache();
+    while (elapsedMs < maxWaitMs) {
+        // Check if response arrived
+        if (cache.find(variablesReference) != cache.end()) {
+            // Check if we're still in the same debug session
+            if (m_dapClient->IsStopped() && m_variableTreeVersion == currentVersion) {
+                UpdateVariableChildren(variablesReference);
+            }
+            return;
+        }
+        
+        // Check if user stepped or continued (version changed or not stopped)
+        if (!m_dapClient->IsStopped() || m_variableTreeVersion != currentVersion) {
+            // User has moved on, abort
+            return;
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(pollIntervalMs));
+        elapsedMs += pollIntervalMs;
+    }
+    
+    // Timeout - response didn't arrive in time
+    if (m_logCallback) {
+        m_logCallback("[warning] Timeout waiting for variable expansion\n");
+    }
+}
+
+void Debugger::UpdateVariableChildren(int variablesReference) {
+    if (!m_dapClient || !m_dapClient->IsStopped()) {
+        return;  // Program state changed, abort update
+    }
+    
+    // Get the updated children from DAPClient's cache
+    const auto& dapCache = m_dapClient->GetVariablesCache();
+    auto it = dapCache.find(variablesReference);
+    
+    if (it == dapCache.end()) {
+        return;  // Children not loaded yet or cache was cleared
+    }
+    
+    // Convert DAP variables to debug variables
+    std::vector<DebugVariable> children;
+    ConvertDAPVariables(it->second, children);
+    
+    // Update the variable tree in both local and global variables
+    // These will silently fail if the parent variable no longer exists (after step)
+    UpdateVariableChildrenInTree(m_localVariables, variablesReference, children);
+    UpdateVariableChildrenInTree(m_globalVariables, variablesReference, children);
+}
+
+bool Debugger::UpdateVariableChildrenInTree(std::vector<DebugVariable>& vars, int variablesReference, const std::vector<DebugVariable>& children) {
+    for (auto& var : vars) {
+        if (var.variables_reference == variablesReference) {
+            var.children = children;
+            var.children_loaded = true;
+            return true;
+        }
+        
+        // Recursively search in children
+        if (!var.children.empty()) {
+            if (UpdateVariableChildrenInTree(var.children, variablesReference, children)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 #endif // ENABLE_DEBUGGER

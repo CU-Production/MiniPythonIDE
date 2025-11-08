@@ -105,6 +105,7 @@ public:
     const std::vector<DAPStackFrame>& GetStackFrames() const { return m_stackFrames; }
     const std::vector<DAPVariable>& GetLocalVariables() const { return m_localVariables; }
     const std::vector<DAPVariable>& GetGlobalVariables() const { return m_globalVariables; }
+    const std::map<int, std::vector<DAPVariable>>& GetVariablesCache() const { return m_variablesCache; }
     
     // Event callbacks
     std::function<void(const std::string& output)> OnOutput;
@@ -128,7 +129,6 @@ private:
     void RequestScopes(int frameId);
     void RequestVariables(int variablesReference, bool isLocal);
     void ParseVariables(const json& variables, std::vector<DAPVariable>& outVars);
-    void UpdateVariableChildren(int variablesReference, const std::vector<DAPVariable>& children);
     
     int m_socket;
     std::atomic<bool> m_connected;
