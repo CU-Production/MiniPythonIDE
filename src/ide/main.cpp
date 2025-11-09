@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 #include "debugger.h"
 #include "json_tree_viewer.h"
 #endif
-#include "../fonts/Cousine-Regular.cpp"
+#include "../../fonts/Cousine-Regular.cpp"
 
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
